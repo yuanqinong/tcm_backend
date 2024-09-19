@@ -1,0 +1,5 @@
+fastapi[standard]
+motor
+python-multipart
+pymongo
+colorama
