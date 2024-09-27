@@ -34,7 +34,6 @@ class VectorEmbeddingsProcessor:
         logger.info("Splitting text into chunks")
         splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         chunks = splitter.split_documents(pages)
-        print("chunks", chunks)
         logger.info(f"Total {len(chunks)} chunks created")
         return chunks
 
