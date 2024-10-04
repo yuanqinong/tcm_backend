@@ -3,7 +3,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import gridfs
 from typing import List, Dict, Any
-from logger.logger import logger
+from app.utils.logger import logger
 from datetime import datetime
 from langchain.schema import Document
 import os
@@ -36,6 +36,15 @@ class MongoDBLangChainLoader:
         if self.sync_client:
             self.sync_client.close()
         self.logger.info("Closed MongoDB connections")
+
+    async def get_count_unprocessed_documents(self) -> int:
+        try:
+            query = {"Synced": False}
+            count = await self.db.fs.files.count_documents(query)
+            return count
+        except Exception as e:
+            self.logger.error(f"Error getting count of unprocessed documents: {str(e)}")
+            raise
 
     async def load_unprocessed_documents(self) -> List[Document]:
         try:

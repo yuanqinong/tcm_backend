@@ -23,8 +23,8 @@ class ColoredFormatter(logging.Formatter):
 
 class Logger:
     def __init__(self, name, log_dir='logs', log_file='api.log'):
-        self.logger = logging.getLogger(name)
-        self.logger.setLevel(logging.DEBUG)
+        self._logger = logging.getLogger(name)
+        self._logger.setLevel(logging.DEBUG)
 
         # Create logs directory if it doesn't exist
         if not os.path.exists(log_dir):
@@ -46,17 +46,30 @@ class Logger:
         console_handler.setFormatter(console_formatter)
 
         # Add handlers to logger
-        self.logger.addHandler(file_handler)
-        self.logger.addHandler(console_handler)
+        self._logger.addHandler(file_handler)
+        self._logger.addHandler(console_handler)
 
     def info(self, message):
-        self.logger.info(message)
+        self._logger.info(message)
 
     def warning(self, message):
-        self.logger.warning(message)
+        self._logger.warning(message)
 
     def error(self, message):
-        self.logger.error(message)
+        self._logger.error(message)
+
+    def debug(self, message):
+        self._logger.debug(message)
+
+    def critical(self, message):
+        self._logger.critical(message)
 
 # Create a global logger instance
 logger = Logger('api_logger')
+
+# Export the logger instance directly
+info = logger.info
+warning = logger.warning
+error = logger.error
+debug = logger.debug
+critical = logger.critical

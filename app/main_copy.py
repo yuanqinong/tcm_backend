@@ -7,7 +7,6 @@ from bson.errors import InvalidId
 import uvicorn
 import gridfs
 from typing import List
-from logger.logger import logger
 from tools.mongodb_loader import MongoDBLangChainLoader
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from datetime import datetime
@@ -17,8 +16,37 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 import io
 import zipfile
+import os
+from dotenv import load_dotenv
 
-app = FastAPI()
+load_dotenv()
+
+# Create a thread pool
+#thread_pool = ThreadPoolExecutor(max_workers=4)  # Adjust the number of workers as needed
+
+# MongoDB connection
+MONGO_URL = os.getenv("MONGO_URL")
+db_name = os.getenv("DB_NAME")
+
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[db_name]
+
+# We need a synchronous client for GridFS
+sync_client = MongoClient(MONGO_URL)
+sync_db = sync_client[db_name]
+fs = gridfs.GridFS(sync_db)
+
+tags_metadata = [
+    {
+        "name": "dashboard",
+        "description": "Operations with TCM dashboard",
+    },
+    {
+        "name": "chatbot",
+        "description": "Operations with chatbot",
+    },
+]
+app = FastAPI(openapi_tags=tags_metadata)
 
 # CORS middleware setup
 app.add_middleware(
@@ -29,21 +57,6 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Content-Disposition"]  # Add this line
 )
-# Create a thread pool
-#thread_pool = ThreadPoolExecutor(max_workers=4)  # Adjust the number of workers as needed
-
-# MongoDB connection
-MONGO_URL = "mongodb://localhost:27017"
-db_name = "TCM_Knowledge_Base"
-
-client = AsyncIOMotorClient(MONGO_URL)
-db = client.TCM_Knowledge_Base
-
-# We need a synchronous client for GridFS
-sync_client = MongoClient(MONGO_URL)
-sync_db = sync_client.TCM_Knowledge_Base
-fs = gridfs.GridFS(sync_db)
-
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     logger.info(f"Request: {request.method} {request.url}")
@@ -55,7 +68,7 @@ async def log_requests(request: Request, call_next):
 async def default():
     return {"message": "Welcome to the TCM Knowledge Base"}
  
-@app.post("/upload")
+@app.post("/upload", tags=["dashboard"])
 async def upload_files(files: List[UploadFile] = File(...)):
     uploaded_files = []
     for file in files:
@@ -71,12 +84,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
         uploaded_files.append({"filename": file.filename, "file_id": str(file_id)})
     return {"message": f"{len(uploaded_files)} file(s) uploaded successfully", "files": uploaded_files}
 
-@app.get("/files")
+@app.get("/files", tags=["dashboard"])
 async def list_files():
     files = await db.fs.files.find().to_list(length=None)
     return [{"filename": file["filename"], "file_id": str(file["_id"]), "upload_date": file["uploadDate"], "content_type": file["contentType"], "Synced": file["Synced"]} for file in files]
 
-@app.delete("/delete_file")
+@app.delete("/delete_file", tags=["dashboard"])
 async def delete_files(file_ids: List[str]):
     deleted_files = []
     errors = []
@@ -108,13 +121,13 @@ async def delete_files(file_ids: List[str]):
         "errors": errors
     }
 
-@app.delete("/delete_embeddings")
+@app.delete("/delete_embeddings", tags=["dashboard"])
 async def delete_embeddings(file_ids: List[str]):
     vector_embeddings_processor = VectorEmbeddingsProcessor()
     result = await vector_embeddings_processor.delete_embeddings(file_ids)
     return result
 
-@app.get("/get_count_unprocessed_files")
+@app.get("/get_count_unprocessed_files", tags=["dashboard"])
 async def get_count_unprocessed_files():
     mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
     await mongo_loader.connect()
@@ -122,7 +135,7 @@ async def get_count_unprocessed_files():
 
     return {"count": len(documents)}
 
-@app.post("/sync_knowledge_base")
+@app.post("/sync_knowledge_base", tags=["dashboard"])
 async def sync_knowledge_base():
     mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
     await mongo_loader.connect()
@@ -144,7 +157,7 @@ async def sync_knowledge_base():
         logger.error(f"Error in sync_knowledge_base: {str(e)}")
         return {"error": str(e)}
 
-@app.post("/download_files")
+@app.post("/download_files", tags=["dashboard"])
 async def download_files(file_ids: List[str]):
     logger.info(f"Attempting to download files with IDs: {file_ids}")
     try:
