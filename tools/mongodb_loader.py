@@ -3,7 +3,7 @@ from pymongo import MongoClient
 from bson import ObjectId
 import gridfs
 from typing import List, Dict, Any
-from app.utils.logger import logger
+from app.utils import logger
 from datetime import datetime
 from langchain.schema import Document
 import os
@@ -79,15 +79,18 @@ class MongoDBLangChainLoader:
             self.logger.error(f"Error loading unprocessed documents from gridfs: {str(e)}")
             raise
 
-    async def mark_documents_as_synced(self, file_ids: List[str]):
+    async def mark_document_as_synced(self, file_id: str):
         try:
-            result = await self.db.fs.files.update_many(
-                {"_id": {"$in": [ObjectId(file_id) for file_id in file_ids]}} ,
+            result = await self.db.fs.files.update_one(
+                {"_id": ObjectId(file_id)},
                 {"$set": {"Synced": True}}
             )
-            self.logger.info(f"Marked {result.modified_count} documents as synced")
+            if result.modified_count == 1:
+                self.logger.info(f"Marked document {file_id} as synced")
+            else:
+                self.logger.warning(f"Document {file_id} was not found or already synced")
         except Exception as e:
-            self.logger.error(f"Error marking documents as synced: {str(e)}")
+            self.logger.error(f"Error marking document {file_id} as synced: {str(e)}")
             raise
 
 # Usage example in the next code block

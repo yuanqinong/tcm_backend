@@ -1,7 +1,7 @@
 #uvicorn app.main:app --reload
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import dashboard
+from app.api import dashboard, chatbot
 
 tags_metadata = [
     {
@@ -19,7 +19,7 @@ app = FastAPI(openapi_tags=tags_metadata)
 # CORS middleware setup
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173","http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,6 +32,9 @@ async def default():
 
 # Include the dashboard router
 app.include_router(dashboard.router, prefix="/api/dashboard")
+
+# Include the chatbot router
+app.include_router(chatbot.router, prefix="/api/chatbot")
 
 # Other app configurations and routers...
 if __name__ == "__main__":

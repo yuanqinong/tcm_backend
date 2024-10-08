@@ -7,7 +7,7 @@ import gridfs
 import zipfile
 import io
 from bson.errors import InvalidId
-from app.utils.logger import logger
+from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
 from app.core.database import db, fs, MONGO_URL, db_name
@@ -46,8 +46,6 @@ async def sync_knowledge_base():
         #loop = asyncio.get_event_loop()
         #await loop.run_in_executor(thread_pool, vector_embeddings_processor.index_doc_to_vector)
         await vector_embeddings_processor.index_doc_to_vector(documents)
-        await mongo_loader.mark_documents_as_synced(document_ids)
-        await mongo_loader.close()
         return {"message": f"{len(documents)} unprocessed files Synced"}
     except Exception as e:
         logger.error(f"Error in sync_knowledge_base: {str(e)}")

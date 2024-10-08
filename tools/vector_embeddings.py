@@ -1,18 +1,24 @@
 import asyncio
+import bs4
 from langchain_huggingface.embeddings import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import Docx2txtLoader
+from langchain_community.document_loaders.csv_loader import CSVLoader
+from langchain_community.document_loaders.text import TextLoader
+from langchain_community.document_loaders import WebBaseLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_ollama import ChatOllama
 from langchain.schema.output_parser import StrOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
-from langchain_core.callbacks import StdOutCallbackHandler
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_postgres import PGVector
+from tools.mongodb_loader import MongoDBLangChainLoader
 from langchain_postgres.vectorstores import PGVector
+from app.core.database import MONGO_URL, db_name
 import psycopg
 from typing import List, Dict, Any
-from app.utils.logger import logger
+from app.utils import logger
 from dotenv import load_dotenv
 import os
 load_dotenv()
@@ -29,6 +35,12 @@ class VectorEmbeddingsProcessor:
         self.llm_model = llm_model
         self.temp_sync_path = temp_sync_path
         self.chain = None
+        self.loaders = {
+            '.pdf': PyPDFLoader,
+            '.docx': Docx2txtLoader,
+            '.txt': TextLoader,
+            '.csv': CSVLoader,
+        }
     
     def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 1500, chunk_overlap: int = 100):
         logger.info("Splitting text into chunks")
@@ -63,21 +75,42 @@ class VectorEmbeddingsProcessor:
             raise  # Re-raise the exception to be handled by the calling function
     
     async def index_doc_to_vector(self, documents):
+        mongo_loader = None
         try:
             pages = []
+            mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
+            await mongo_loader.connect()
             for doc in documents:
                 file_path = doc['local_path']
                 object_id = doc['file_id']  # This is the ObjectId from MongoDB
-                logger.info(f"Loading PDF: {file_path}")
-                loader = PyPDFLoader(file_path)
-                async for page in loader.alazy_load():
-                    # Add the object_id to each page's metadata
-                    page.metadata['object_id'] = object_id
-                    pages.append(page)
+                logger.info(f"Processing document: {file_path} with object_id: {object_id}")
+                file_extension = os.path.splitext(file_path)[1].lower()
+
+                if file_extension not in self.loaders:
+                    logger.warning(f"Unsupported file type: {file_extension}. Skipping {file_path}")
+                    continue
+
+                loader_class = self.loaders[file_extension]
+                loader = loader_class(file_path)
+                try:
+                    async for page in loader.alazy_load():
+                        page.metadata['object_id'] = object_id
+                        pages.append(page)
+                    await mongo_loader.mark_document_as_synced(object_id)
+                except Exception as e:
+                    logger.error(f"Error loading file {file_path}: {str(e)}")
+
             chunks = self.split_text(pages)
             self.store_to_vector(chunks)
-            logger.info(f"Total {len(documents)} PDF files Synced")
+            logger.info(f"Total {len(documents)} files processed")
 
+        except Exception as e:
+            logger.error(f"Error in index_doc_to_vector: {str(e)}")
+        finally:
+            # Close MongoDB connection if it was opened
+            if mongo_loader:
+                await mongo_loader.close()
+            
             # Delete files in temp_sync folder
             for doc in documents:
                 file_path = doc['local_path']
@@ -88,10 +121,9 @@ class VectorEmbeddingsProcessor:
                     logger.error(f"Error deleting file {file_path}: {str(e)}")
 
             logger.info("Cleaned up temporary files in temp_sync folder")
-            
-        except Exception as e:
-            logger.error(f"Error in index_doc_to_vector: {str(e)}")
 
+        return {"message": f"{len(documents)} files processed"}
+ 
     async def delete_embeddings(self, object_ids: List[str]):
         try:
             connection_params = {
@@ -125,51 +157,79 @@ class VectorEmbeddingsProcessor:
             return {"error": str(e)}  
         
     def load_vectorstore_and_retriever(self):
-        logger.info("Loading vector store and retriever")
-        connection_params = {
-            "user": os.getenv("PGVECTOR_USER"),
-            "password": os.getenv("PGVECTOR_PASSWORD"),
-            "host": os.getenv("PGVECTOR_HOST"),
-            "port": os.getenv("PGVECTOR_PORT"),
-            "database": os.getenv("PGVECTOR_DB_NAME")
-        }
-        connection_string = f"postgresql+psycopg://{connection_params['user']}:{connection_params['password']}@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
-        vector_store = PGVector(
-        embedding=self.huggingface_embeddings,
-        collection_name=os.getenv("PGVECTOR_COLLECTION_NAME"),
-        connection=connection_string,
-        use_jsonb=True,
-        )
-        QUERY_PROMPT = PromptTemplate(
-        input_variables=["question"],
-        template="""You are an AI language model assistant. Your task is to generate five
-        different versions of the given user question to retrieve relevant documents from
-        a vector database. By generating multiple perspectives on the user question, your
-        goal is to help the user overcome some of the limitations of the distance-based
-        similarity search. Provide these alternative questions separated by newlines.
-        Original question: {question}"""
-        )
-        llm = ChatOllama(model=self.llm_model, temperature=0)
-        retriever = MultiQueryRetriever.from_llm(
-            vector_store.as_retriever(),
-            llm,
-        )
-        def format_docs(docs):  
-            format_docs = "\n\n".join([d.page_content for d in docs])
-            return format_docs
-        parser = StrOutputParser()
-        prompt = QUERY_PROMPT
+        logger.info("Starting load_vectorstore_and_retriever")
         try:
-            self.chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | parser
-            )
-            print("Chain setup completed successfully")
-        except Exception as e:
-            print(f"Error in setup_conversational_chain: {str(e)}")
+            connection_params = {
+                "user": os.getenv("PGVECTOR_USER"),
+                "password": os.getenv("PGVECTOR_PASSWORD"),
+                "host": os.getenv("PGVECTOR_HOST"),
+                "port": os.getenv("PGVECTOR_PORT"),
+                "database": os.getenv("PGVECTOR_DB_NAME")
+            }
+            connection_string = f"postgresql+psycopg://{connection_params['user']}:{connection_params['password']}@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
+            logger.debug(f"Connection string created: {connection_string.replace(connection_params['password'], '******')}")
 
+            logger.info("Initializing PGVector")
+            vector_store = PGVector(
+                embeddings=self.huggingface_embeddings,
+                collection_name=os.getenv("PGVECTOR_COLLECTION_NAME"),
+                connection=connection_string,
+                use_jsonb=True,
+            )
+            logger.info("PGVector initialized successfully")
+
+            logger.info("Setting up QUERY_PROMPT")
+            QUERY_PROMPT = PromptTemplate(
+                input_variables=["question"],
+                template="""You are an AI language model assistant. Your task is to generate five
+                different versions of the given user question to retrieve relevant documents from
+                a vector database. By generating multiple perspectives on the user question, your
+                goal is to help the user overcome some of the limitations of the distance-based
+                similarity search. Provide these alternative questions separated by newlines.
+                Original question: {question}"""
+            )
+
+            logger.info(f"Initializing ChatOllama with model: {self.llm_model}")
+            llm = ChatOllama(model=self.llm_model, temperature=0)
+
+            logger.info("Setting up MultiQueryRetriever")
+            retriever = MultiQueryRetriever.from_llm(
+                vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 5}),
+                llm,
+                prompt=QUERY_PROMPT
+            )
+            logger.info("MultiQueryRetriever set up successfully")
+
+            def format_docs(docs):  
+                format_docs = "\n\n".join([d.page_content for d in docs])
+                print("format_docs", format_docs)
+                return format_docs
+
+            logger.info("Initializing StrOutputParser")
+            parser = StrOutputParser()
+
+            logger.info("Setting up answer_prompt")
+            template = '''Answer the question based ONLY on the following context:
+            {context}
+            Question: {question}
+            '''
+            answer_prompt = PromptTemplate.from_template(template)
+
+            logger.info("Setting up the chain")
+            self.chain = (
+                {"context": retriever | format_docs, "question": RunnablePassthrough()}
+                | answer_prompt
+                | llm
+                | parser
+            )
+            logger.info("Chain setup completed successfully")
+            return self.chain
+
+        except Exception as e:
+            logger.error(f"Error in load_vectorstore_and_retriever: {str(e)}", exc_info=True)
+            raise
+
+        
     """
        async def index_pdf_and_create_chain(self):
         try:

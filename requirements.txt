@@ -12,9 +12,6 @@ langchain-cohere
 python-dotenv
 langchain-huggingface
 langchain_postgres
-faiss-cpu
 psycopg-binary
-langchain-unstructured 
-unstructured-client 
-unstructured 
 python-magic
+docx2txt
