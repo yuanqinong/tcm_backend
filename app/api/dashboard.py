@@ -10,12 +10,12 @@ from bson.errors import InvalidId
 from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
-from app.core.database import db, fs, MONGO_URL, db_name
+from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, links_collection
 
 
 router = APIRouter()
 
-@router.post("/upload", tags=["dashboard"])
+@router.post("/upload_files", tags=["dashboard"])
 async def upload_files(files: List[UploadFile] = File(...)):
     uploaded_files = []
     for file in files:
@@ -31,12 +31,36 @@ async def upload_files(files: List[UploadFile] = File(...)):
         uploaded_files.append({"filename": file.filename, "file_id": str(file_id)})
     return {"message": f"{len(uploaded_files)} file(s) uploaded successfully", "files": uploaded_files}
 
+@router.post("/upload_link", tags=["dashboard"])
+async def upload_link(links: List[str]):
+    try:
+        uploaded_links = []
+        for link in links:
+            link_doc = {
+                "url": link,
+                "uploadDate": datetime.now(),
+                "Synced": False
+            }
+            result = await links_collection.insert_one(link_doc)
+            uploaded_links.append({
+                "url": link,
+                "link_id": str(result.inserted_id)
+            })
+        
+        logger.info(f"Uploaded {len(uploaded_links)} links to TCM_Link database")
+        return {
+            "message": f"{len(uploaded_links)} link(s) uploaded successfully",
+            "links": uploaded_links
+        }
+    except Exception as e:
+        logger.error(f"Error uploading links: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while uploading links: {str(e)}")
+
 @router.post("/sync_knowledge_base", tags=["dashboard"])
 async def sync_knowledge_base():
-    mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
+    mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await mongo_loader.connect()
     documents = await mongo_loader.load_unprocessed_documents()
-    document_ids = [doc["file_id"] for doc in documents]
     if not documents:
         return {"message": "All documents are synced"}
     logger.info(f"Total {len(documents)} unprocessed files found and processing...")
@@ -64,7 +88,7 @@ async def download_files(file_ids: List[str]):
         if len(file_ids) == 1:
             # Single file download
             file_id = file_ids[0]
-            file = await db.fs.files.find_one({"_id": ObjectId(file_id)})
+            file = await doc_db.fs.files.find_one({"_id": ObjectId(file_id)})
             if not file:
                 logger.warning(f"File metadata not found for ID: {file_id}")
                 raise HTTPException(status_code=404, detail="File not found")
@@ -87,7 +111,7 @@ async def download_files(file_ids: List[str]):
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                 for file_id in file_ids:
-                    file = await db.fs.files.find_one({"_id": ObjectId(file_id)})
+                    file = await doc_db.fs.files.find_one({"_id": ObjectId(file_id)})
                     if not file:
                         logger.warning(f"File metadata not found for ID: {file_id}")
                         continue  # Skip this file and continue with others
@@ -121,12 +145,32 @@ async def download_files(file_ids: List[str]):
     
 @router.get("/files", tags=["dashboard"])
 async def list_files():
-    files = await db.fs.files.find().to_list(length=None)
-    return [{"filename": file["filename"], "file_id": str(file["_id"]), "upload_date": file["uploadDate"], "content_type": file["contentType"], "Synced": file["Synced"]} for file in files]
+    files = await doc_db.fs.files.find().to_list(length=None)
+    return [{"filename": file["filename"], "id": str(file["_id"]), "upload_date": file["uploadDate"], "content_type": file["contentType"], "Synced": file["Synced"]} for file in files]
 
+@router.get("/links", tags=["dashboard"])
+async def get_links():
+    try:
+        links = await links_collection.find().to_list(length=None)
+        formatted_links = []
+        for link in links:
+            formatted_links.append({
+                "id": str(link["_id"]),
+                "url": link["url"],
+                "upload_date": link["uploadDate"],
+                "synced": link["Synced"]
+            })
+        
+        logger.info(f"Retrieved {len(formatted_links)} links from TCM_Link database")
+        return formatted_links
+        
+    except Exception as e:
+        logger.error(f"Error retrieving links: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while retrieving links: {str(e)}")
+    
 @router.get("/get_count_unprocessed_files", tags=["dashboard"])
 async def get_count_unprocessed_files():
-    mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
+    mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await mongo_loader.connect()
     count = await mongo_loader.get_count_unprocessed_documents()
     await mongo_loader.close()
@@ -140,7 +184,7 @@ async def delete_files(file_ids: List[str]):
     for file_id in file_ids:
         try:
             # Check if the file exists
-            file = await db.fs.files.find_one({"_id": ObjectId(file_id)})
+            file = await doc_db.fs.files.find_one({"_id": ObjectId(file_id)})
             if not file:
                 errors.append(f"File {file_id} not found")
                 continue
@@ -149,10 +193,10 @@ async def delete_files(file_ids: List[str]):
             fs.delete(ObjectId(file_id))
 
             # Delete the file metadata from fs.files collection
-            await db.fs.files.delete_one({"_id": ObjectId(file_id)})
+            await doc_db.fs.files.delete_one({"_id": ObjectId(file_id)})
 
             # Delete any chunks associated with the file
-            await db.fs.chunks.delete_many({"files_id": ObjectId(file_id)})
+            await doc_db.fs.chunks.delete_many({"files_id": ObjectId(file_id)})
 
             deleted_files.append(file_id)
         except Exception as e:

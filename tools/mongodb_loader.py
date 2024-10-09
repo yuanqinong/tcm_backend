@@ -79,18 +79,24 @@ class MongoDBLangChainLoader:
             self.logger.error(f"Error loading unprocessed documents from gridfs: {str(e)}")
             raise
 
-    async def mark_document_as_synced(self, file_id: str):
+    async def mark_documents_as_synced(self, file_ids: List[str]):
         try:
-            result = await self.db.fs.files.update_one(
-                {"_id": ObjectId(file_id)},
+            result = await self.db.fs.files.update_many(
+                {"_id": {"$in": [ObjectId(file_id) for file_id in file_ids]}},
                 {"$set": {"Synced": True}}
             )
-            if result.modified_count == 1:
-                self.logger.info(f"Marked document {file_id} as synced")
+            
+            if result.modified_count > 0:
+                self.logger.info(f"Marked {result.modified_count} document(s) as synced")
+                if result.modified_count < len(file_ids):
+                    self.logger.warning(f"{len(file_ids) - result.modified_count} document(s) were not found or already synced")
             else:
-                self.logger.warning(f"Document {file_id} was not found or already synced")
+                self.logger.warning(f"No documents were marked as synced. All {len(file_ids)} document(s) were not found or already synced")
+            
+            return result.modified_count
+
         except Exception as e:
-            self.logger.error(f"Error marking document {file_id} as synced: {str(e)}")
+            self.logger.error(f"Error marking documents as synced: {str(e)}")
             raise
 
 # Usage example in the next code block

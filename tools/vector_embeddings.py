@@ -15,7 +15,7 @@ from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_postgres import PGVector
 from tools.mongodb_loader import MongoDBLangChainLoader
 from langchain_postgres.vectorstores import PGVector
-from app.core.database import MONGO_URL, db_name
+from app.core.database import MONGO_URL, DOC_DB_NAME
 import psycopg
 from typing import List, Dict, Any
 from app.utils import logger
@@ -60,7 +60,6 @@ class VectorEmbeddingsProcessor:
         try:
             # Use asyncio.to_thread to run the potentially blocking PGVector operation in a separate thread
             connection_string = f"postgresql+psycopg://{connection_params['user']}:{connection_params['password']}@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
-            print(connection_string)
             vector_store = PGVector.from_documents(
                 documents=chunks,
                 embedding=self.huggingface_embeddings,
@@ -78,11 +77,13 @@ class VectorEmbeddingsProcessor:
         mongo_loader = None
         try:
             pages = []
-            mongo_loader = MongoDBLangChainLoader(MONGO_URL, db_name)
+            mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
             await mongo_loader.connect()
+            
+            processed_file_ids = []
             for doc in documents:
                 file_path = doc['local_path']
-                object_id = doc['file_id']  # This is the ObjectId from MongoDB
+                object_id = doc['file_id']
                 logger.info(f"Processing document: {file_path} with object_id: {object_id}")
                 file_extension = os.path.splitext(file_path)[1].lower()
 
@@ -96,16 +97,32 @@ class VectorEmbeddingsProcessor:
                     async for page in loader.alazy_load():
                         page.metadata['object_id'] = object_id
                         pages.append(page)
-                    await mongo_loader.mark_document_as_synced(object_id)
+                    processed_file_ids.append(object_id)
                 except Exception as e:
                     logger.error(f"Error loading file {file_path}: {str(e)}")
+                    raise ValueError(f"Something went wrong. Please try again later.")
+
+            if not pages:
+                raise ValueError(f"Something went wrong. Please try again later.")
 
             chunks = self.split_text(pages)
-            self.store_to_vector(chunks)
-            logger.info(f"Total {len(documents)} files processed")
+            try:
+                if chunks:
+                    self.store_to_vector(chunks)
+                    logger.info(f"Successfully stored {len(chunks)} chunks in vector database")
+                    
+                # Mark documents as synced only after successful storage
+                if processed_file_ids:
+                    updated_count = await mongo_loader.mark_documents_as_synced(processed_file_ids)
+                    logger.info(f"Marked {updated_count} out of {len(processed_file_ids)} processed documents as synced")
+            except Exception as e:
+                logger.error(f"Error storing chunks to vector database: {str(e)}")
+                raise ValueError(f"Something went wrong. Please try again later.")
 
         except Exception as e:
             logger.error(f"Error in index_doc_to_vector: {str(e)}")
+            raise ValueError(f"Something went wrong. Please try again later.")
+
         finally:
             # Close MongoDB connection if it was opened
             if mongo_loader:

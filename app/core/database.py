@@ -2,14 +2,22 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import MongoClient
 import gridfs
+from dotenv import load_dotenv
+load_dotenv()
 
 MONGO_URL = os.getenv("MONGO_URL")
-db_name = os.getenv("DB_NAME")
+DOC_DB_NAME = os.getenv("DOC_DB_NAME")
+WEB_DB_NAME = os.getenv("WEB_DB_NAME")
+WEB_COLLECTION_NAME = os.getenv("WEB_COLLECTION_NAME")
 
 client = AsyncIOMotorClient(MONGO_URL)
-db = client[db_name]
+doc_db = client[DOC_DB_NAME]
+link_db = client[WEB_DB_NAME]
 
 # We need a synchronous client for GridFS
 sync_client = MongoClient(MONGO_URL)
-sync_db = sync_client[db_name]
-fs = gridfs.GridFS(sync_db)
+sync_doc_db = sync_client[DOC_DB_NAME]
+fs = gridfs.GridFS(sync_doc_db)
+
+# Collection for links
+links_collection = link_db[WEB_COLLECTION_NAME]
