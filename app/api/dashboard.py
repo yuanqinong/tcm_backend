@@ -31,8 +31,8 @@ async def upload_files(files: List[UploadFile] = File(...)):
         uploaded_files.append({"filename": file.filename, "file_id": str(file_id)})
     return {"message": f"{len(uploaded_files)} file(s) uploaded successfully", "files": uploaded_files}
 
-@router.post("/upload_link", tags=["dashboard"])
-async def upload_link(links: List[str]):
+@router.post("/upload_links", tags=["dashboard"])
+async def upload_links(links: List[str]):
     try:
         uploaded_links = []
         for link in links:
@@ -214,5 +214,29 @@ async def delete_embeddings(file_ids: List[str]):
     result = await vector_embeddings_processor.delete_embeddings(file_ids)
     return result
 
+@router.delete("/delete_links", tags=["dashboard"])
+async def delete_links(link_ids: List[str]):
+    deleted_links = []
+    errors = []
 
+    for link_id in link_ids:
+        try:
+            # Check if the link exists
+            link = await links_collection.find_one({"_id": ObjectId(link_id)})
+            if not link:
+                errors.append(f"Link {link_id} not found")
+                continue
+
+            # Delete the link from the links collection 
+            await links_collection.delete_one({"_id": ObjectId(link_id)})
+
+            deleted_links.append(link_id)
+        except Exception as e:
+            errors.append(f"Error deleting link {link_id}: {str(e)}")
+
+    return {    
+        "message": f"{len(deleted_links)} link(s) deleted successfully",
+        "deleted_links": deleted_links,
+        "errors": errors
+    }   
 
