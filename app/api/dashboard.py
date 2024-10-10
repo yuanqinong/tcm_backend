@@ -1,7 +1,7 @@
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from typing import List
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi.responses import StreamingResponse
 import gridfs
 import zipfile
@@ -19,12 +19,13 @@ router = APIRouter()
 async def upload_files(files: List[UploadFile] = File(...)):
     uploaded_files = []
     for file in files:
+        date_time = datetime.now()
         contents = await file.read()
         
         file_id = fs.put(
             contents, 
             filename=file.filename, 
-            uploadDate=datetime.now(),
+            uploadDate=date_time,
             content_type=file.content_type,
             Synced=False
         )
@@ -123,7 +124,7 @@ async def download_files(file_ids: List[str]):
                         continue  # Skip this file and continue with others
                     zip_filename = datetime.now().strftime("%Y%m%d_%H%M%S")
                     # Add file to ZIP
-                    zip_file.writestr(zip_filename, grid_out.read())
+                    zip_file.writestr(file['filename'], grid_out.read())
                     logger.info(f"Added file to ZIP: {zip_filename}")
 
             # Prepare the ZIP file for streaming
@@ -142,7 +143,19 @@ async def download_files(file_ids: List[str]):
     except Exception as e:
         logger.error(f"Unexpected error downloading files: {str(e)}")
         raise HTTPException(status_code=500, detail="An unexpected error occurred")
-    
+
+@router.post("/get_url_with_id", tags=["dashboard"])
+async def get_url_with_id(ids: List[str]):
+    print(ids)
+    url_with_id = []
+    for id in ids:
+        link_doc = await links_collection.find_one({"_id": ObjectId(id)})
+        print(link_doc)
+        if link_doc:
+            url_with_id.append(link_doc["url"])
+        
+    return url_with_id
+
 @router.get("/files", tags=["dashboard"])
 async def list_files():
     files = await doc_db.fs.files.find().to_list(length=None)
@@ -158,7 +171,7 @@ async def get_links():
                 "id": str(link["_id"]),
                 "url": link["url"],
                 "upload_date": link["uploadDate"],
-                "synced": link["Synced"]
+                "Synced": link["Synced"]
             })
         
         logger.info(f"Retrieved {len(formatted_links)} links from TCM_Link database")
