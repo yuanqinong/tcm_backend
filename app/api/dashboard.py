@@ -10,7 +10,7 @@ from bson.errors import InvalidId
 from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
-from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, links_collection
+from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection
 
 
 router = APIRouter()
@@ -59,23 +59,33 @@ async def upload_links(links: List[str]):
 
 @router.post("/sync_knowledge_base", tags=["dashboard"])
 async def sync_knowledge_base():
-    mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
-    await mongo_loader.connect()
-    documents = await mongo_loader.load_unprocessed_documents()
-    if not documents:
-        return {"message": "All documents are synced"}
-    logger.info(f"Total {len(documents)} unprocessed files found and processing...")
-    try:    
-        vector_embeddings_processor = VectorEmbeddingsProcessor()
-         # Use the thread pool for CPU-bound task
-        #loop = asyncio.get_event_loop()
-        #await loop.run_in_executor(thread_pool, vector_embeddings_processor.index_doc_to_vector)
-        await vector_embeddings_processor.index_doc_to_vector(documents)
-        return {"message": f"{len(documents)} unprocessed files Synced"}
-    except Exception as e:
-        logger.error(f"Error in sync_knowledge_base: {str(e)}")
-        return {"error": str(e)}
-
+    docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
+    await docs_mongo_loader.connect()
+    documents = await docs_mongo_loader.load_unprocessed_documents()
+    urls_mongo_loader = MongoDBLangChainLoader(MONGO_URL, WEB_DB_NAME)  
+    await urls_mongo_loader.connect()
+    links = await urls_mongo_loader.load_unprocessed_urls()
+    if not documents and not links:
+        return {"message": "All documents and links are synced"}
+    if documents:
+        logger.info(f"Total {len(documents)} unprocessed files found and processing...")
+        try:    
+            vector_embeddings_processor = VectorEmbeddingsProcessor()
+            await vector_embeddings_processor.index_doc_to_vector(documents)
+        except Exception as e:
+            logger.error(f"Error in sync_knowledge_base: {str(e)}")
+            return {"error": str(e)}
+    if links:
+        logger.info(f"Total {len(links)} unprocessed links found and processing...")
+        try:
+            vector_embeddings_processor = VectorEmbeddingsProcessor()
+            await vector_embeddings_processor.index_url_to_vector(links)
+            
+        except Exception as e:
+            logger.error(f"Error in sync_knowledge_base: {str(e)}")
+            return {"error": str(e)}
+        
+    return {"message": "Sync completed successfully"}
 @router.post("/download_files", tags=["dashboard"])
 async def download_files(file_ids: List[str]):
     logger.info(f"Attempting to download files with IDs: {file_ids}")
@@ -222,9 +232,9 @@ async def delete_files(file_ids: List[str]):
     }
 
 @router.delete("/delete_embeddings", tags=["dashboard"])
-async def delete_embeddings(file_ids: List[str]):
+async def delete_embeddings(ids: List[str]):
     vector_embeddings_processor = VectorEmbeddingsProcessor()
-    result = await vector_embeddings_processor.delete_embeddings(file_ids)
+    result = await vector_embeddings_processor.delete_embeddings(ids)
     return result
 
 @router.delete("/delete_links", tags=["dashboard"])

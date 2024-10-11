@@ -7,6 +7,8 @@ from app.utils import logger
 from datetime import datetime
 from langchain.schema import Document
 import os
+from dotenv import load_dotenv
+load_dotenv()   
 
 class MongoDBLangChainLoader:
     def __init__(self, mongo_url: str, db_name: str):
@@ -51,7 +53,7 @@ class MongoDBLangChainLoader:
             query = {"Synced": False}
             files = self.db.fs.files.find(query)
             documents = []
-            temp_dir = "./temp_sync"
+            temp_dir = "./temp_sync_docs"
             os.makedirs(temp_dir, exist_ok=True)
             
             async for file in files:
@@ -98,5 +100,42 @@ class MongoDBLangChainLoader:
         except Exception as e:
             self.logger.error(f"Error marking documents as synced: {str(e)}")
             raise
+    
+    async def load_unprocessed_urls(self) -> List[Dict[str, Any]]:
+        WEB_COLLECTION_NAME = os.getenv("WEB_COLLECTION_NAME")
+        try:
+            query = {"Synced": False}
+            projection = {"url": 1, "_id": 1}  # Retrieve both 'url' and '_id' fields
+            cursor = self.db[WEB_COLLECTION_NAME].find(query, projection)
+            url_data = [
+                {"url": doc['url'], "id": str(doc['_id'])}
+                async for doc in cursor
+                if 'url' in doc and '_id' in doc
+            ]
+            
+            self.logger.info(f"Retrieved {len(url_data)} unprocessed URLs with their IDs")
+            return url_data
+        except Exception as e:
+            self.logger.error(f"Error loading unprocessed URLs: {str(e)}")
+            raise
 
-# Usage example in the next code block
+    async def mark_urls_as_synced(self, url_ids: List[str]):
+        WEB_COLLECTION_NAME = os.getenv("WEB_COLLECTION_NAME")
+        try:
+            result = await self.db[WEB_COLLECTION_NAME].update_many(
+                {"_id": {"$in": [ObjectId(url_id) for url_id in url_ids]}},
+                {"$set": {"Synced": True}}
+            )
+            
+            if result.modified_count > 0:
+                self.logger.info(f"Marked {result.modified_count} URL(s) as synced")
+                if result.modified_count < len(url_ids):
+                    self.logger.warning(f"{len(url_ids) - result.modified_count} URL(s) were not found or already synced")
+            else:
+                self.logger.warning(f"No URLs were marked as synced. All {len(url_ids)} URL(s) were not found or already synced")
+            
+            return result.modified_count
+
+        except Exception as e:
+            self.logger.error(f"Error marking URLs as synced: {str(e)}")
+            raise 

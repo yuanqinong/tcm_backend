@@ -15,7 +15,7 @@ from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_postgres import PGVector
 from tools.mongodb_loader import MongoDBLangChainLoader
 from langchain_postgres.vectorstores import PGVector
-from app.core.database import MONGO_URL, DOC_DB_NAME
+from app.core.database import MONGO_URL, DOC_DB_NAME, WEB_DB_NAME
 import psycopg
 from typing import List, Dict, Any
 from app.utils import logger
@@ -30,16 +30,17 @@ connection_params = {
     "database": os.getenv("PGVECTOR_DB_NAME")
 }
 class VectorEmbeddingsProcessor:
-    def __init__(self, model_name: str = "sentence-transformers/all-mpnet-base-v2", llm_model: str = "llama3.1", temp_sync_path: str = "./temp_sync"):
+    def __init__(self, model_name: str = "sentence-transformers/all-mpnet-base-v2", llm_model: str = "llama3.1", temp_sync_docs_path: str = "./temp_sync_docs"):
         self.huggingface_embeddings = HuggingFaceEmbeddings(model_name=model_name)
         self.llm_model = llm_model
-        self.temp_sync_path = temp_sync_path
+        self.temp_sync_docs_path = temp_sync_docs_path
         self.chain = None
         self.loaders = {
             '.pdf': PyPDFLoader,
             '.docx': Docx2txtLoader,
             '.txt': TextLoader,
             '.csv': CSVLoader,
+            'web': WebBaseLoader
         }
     
     def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 1500, chunk_overlap: int = 100):
@@ -71,8 +72,50 @@ class VectorEmbeddingsProcessor:
             return vector_store
         except Exception as e:
             logger.error(f"Error in store_to_vector: {str(e)}")
-            raise  # Re-raise the exception to be handled by the calling function
-    
+            raise ValueError(f"Something went wrong. Please try again later.")
+
+    async def index_url_to_vector(self, links):
+        url_mongo_loader = None
+        try:
+            pages = []
+            processed_url_ids = []
+            url_mongo_loader = MongoDBLangChainLoader(MONGO_URL, WEB_DB_NAME)
+            await url_mongo_loader.connect()
+            loader_class = self.loaders['web']
+            for url in links:
+                object_id = url['id']
+                link = url['url']
+                loader = loader_class([link])
+                try:    
+                    loaded_pages = await asyncio.to_thread(loader.load)
+                    for page in loaded_pages:
+                        page.metadata['object_id'] = object_id
+                        pages.append(page)
+                    processed_url_ids.append(object_id)
+                except Exception as e:
+                    logger.error(f"Error loading URL {link}: {str(e)}")
+                    raise ValueError(f"Something went wrong. Please try again later.")
+            if not pages:
+                    raise ValueError(f"Something went wrong. Please try again later.")
+            
+            chunks = self.split_text(pages)
+            try:
+                if chunks:
+                    self.store_to_vector(chunks)
+                    logger.info(f"Successfully stored {len(chunks)} chunks in vector database")
+                    
+                if processed_url_ids:
+                    updated_count = await url_mongo_loader.mark_urls_as_synced(processed_url_ids)
+                    logger.info(f"Marked {updated_count} out of {len(processed_url_ids)} processed documents as synced")
+            except Exception as e:
+                logger.error(f"Error storing chunks to vector database: {str(e)}")
+
+                raise ValueError(f"Something went wrong. Please try again later.")
+        except Exception as e:
+            logger.error(f"Error in index_url_to_vector: {str(e)}")
+            raise ValueError(f"Something went wrong. Please try again later.")
+        
+        return {"message": f"{len(links)} links processed"}
     async def index_doc_to_vector(self, documents):
         mongo_loader = None
         try:
@@ -250,13 +293,13 @@ class VectorEmbeddingsProcessor:
     """
        async def index_pdf_and_create_chain(self):
         try:
-            pdf_files = [f for f in os.listdir(self.temp_sync_path) if f.endswith('.pdf')]
+            pdf_files = [f for f in os.listdir(self.temp_sync_docs_path) if f.endswith('.pdf')]
             if not pdf_files:
                 logger.warning("No PDF files found in the directory.")
             else:
                 pages = []
                 for pdf_file in pdf_files:
-                    file_path = os.path.join(self.temp_sync_path, pdf_file)
+                    file_path = os.path.join(self.temp_sync_docs_path, pdf_file)
                     logger.info(f"Loading PDF: {file_path}")
                     loader = PyPDFLoader(file_path)
                 async for page in loader.alazy_load():
