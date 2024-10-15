@@ -30,7 +30,7 @@ class MongoDBLangChainLoader:
             self.logger.info(f"Connected to MongoDB: {self.db_name}")
         except Exception as e:
             self.logger.error(f"Failed to connect to MongoDB: {str(e)}")
-            raise
+            raise ValueError(f"Something went wrong. Please try again later.")
 
     async def close(self):
         if self.async_client:
@@ -46,7 +46,7 @@ class MongoDBLangChainLoader:
             return count
         except Exception as e:
             self.logger.error(f"Error getting count of unprocessed documents: {str(e)}")
-            raise
+            raise ValueError(f"Something went wrong. Please try again later.")
 
     async def load_unprocessed_documents(self) -> List[Document]:
         try:
@@ -79,7 +79,7 @@ class MongoDBLangChainLoader:
         
         except Exception as e:
             self.logger.error(f"Error loading unprocessed documents from gridfs: {str(e)}")
-            raise
+            raise ValueError(f"Something went wrong. Please try again later.")
 
     async def mark_documents_as_synced(self, file_ids: List[str]):
         try:
@@ -99,7 +99,7 @@ class MongoDBLangChainLoader:
 
         except Exception as e:
             self.logger.error(f"Error marking documents as synced: {str(e)}")
-            raise
+            raise ValueError(f"Something went wrong. Please try again later.")
     
     async def load_unprocessed_urls(self) -> List[Dict[str, Any]]:
         WEB_COLLECTION_NAME = os.getenv("WEB_COLLECTION_NAME")
@@ -117,7 +117,7 @@ class MongoDBLangChainLoader:
             return url_data
         except Exception as e:
             self.logger.error(f"Error loading unprocessed URLs: {str(e)}")
-            raise
+            raise ValueError(f"Something went wrong. Please try again later.")
 
     async def mark_urls_as_synced(self, url_ids: List[str]):
         WEB_COLLECTION_NAME = os.getenv("WEB_COLLECTION_NAME")
@@ -138,4 +138,4 @@ class MongoDBLangChainLoader:
 
         except Exception as e:
             self.logger.error(f"Error marking URLs as synced: {str(e)}")
-            raise 
+            raise ValueError(f"Something went wrong. Please try again later.")

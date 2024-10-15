@@ -44,11 +44,15 @@ class VectorEmbeddingsProcessor:
         }
     
     def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 1500, chunk_overlap: int = 100):
-        logger.info("Splitting text into chunks")
-        splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        chunks = splitter.split_documents(pages)
-        logger.info(f"Total {len(chunks)} chunks created")
-        return chunks
+        try:    
+            logger.info("Splitting text into chunks")
+            splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            chunks = splitter.split_documents(pages)
+            logger.info(f"Total {len(chunks)} chunks created")
+            return chunks
+        except Exception as e:
+            logger.error(f"Error in split_text: {str(e)}")
+            raise ValueError(f"Something went wrong. Please try again later.")
 
     def store_to_vector(self, chunks: List[Dict[str, Any]]):
         connection_params = {

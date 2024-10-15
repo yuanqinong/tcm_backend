@@ -18,4 +18,4 @@ async def chat(chat_request: ChatRequest):
         return {"answer": response}
     except Exception as e:
         logger.error(f"Error in sync_knowledge_base: {str(e)}")
-        return {"error": str(e)}
+        raise ValueError(f"Something went wrong. Please try again later.")

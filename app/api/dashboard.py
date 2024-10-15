@@ -1,7 +1,8 @@
-from fastapi import APIRouter, File, UploadFile, HTTPException
-from typing import List
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends,Header, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from typing import List, Optional
 from bson import ObjectId
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi.responses import StreamingResponse
 import gridfs
 import zipfile
@@ -11,35 +12,45 @@ from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
 from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection
-
+from app.api.loginPage import get_current_user,User
+# Define UTC+8 offset
+utc_offset = timedelta(hours=8)
 
 router = APIRouter()
+security = HTTPBearer()
 
 @router.post("/upload_files", tags=["dashboard"])
-async def upload_files(files: List[UploadFile] = File(...)):
+async def upload_files(files: List[UploadFile] = File(...), current_user: User = Depends(get_current_user)):
     uploaded_files = []
-    for file in files:
-        date_time = datetime.now()
-        contents = await file.read()
-        
-        file_id = fs.put(
-            contents, 
-            filename=file.filename, 
-            uploadDate=date_time,
-            content_type=file.content_type,
-            Synced=False
-        )
-        uploaded_files.append({"filename": file.filename, "file_id": str(file_id)})
+    try:
+        for file in files:
+            # Use UTC time and add 8 hours to get UTC+8
+            date_time = datetime.now(timezone.utc) + utc_offset
+            contents = await file.read()
+            
+            file_id = fs.put(
+                contents, 
+                filename=file.filename, 
+                uploadDate=date_time,
+                content_type=file.content_type,
+                Synced=False
+                )
+            uploaded_files.append({"filename": file.filename, "file_id": str(file_id)})
+    except Exception as e:
+        logger.error(f"Error uploading files: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
     return {"message": f"{len(uploaded_files)} file(s) uploaded successfully", "files": uploaded_files}
 
 @router.post("/upload_links", tags=["dashboard"])
-async def upload_links(links: List[str]):
+async def upload_links(links: List[str],current_user: User = Depends(get_current_user)):
     try:
         uploaded_links = []
         for link in links:
+            # Use UTC time and add 8 hours to get UTC+8
+            date_time = datetime.now(timezone.utc) + utc_offset
             link_doc = {
                 "url": link,
-                "uploadDate": datetime.now(),
+                "uploadDate": date_time,
                 "Synced": False
             }
             result = await links_collection.insert_one(link_doc)
@@ -55,10 +66,10 @@ async def upload_links(links: List[str]):
         }
     except Exception as e:
         logger.error(f"Error uploading links: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"An error occurred while uploading links: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
 
 @router.post("/sync_knowledge_base", tags=["dashboard"])
-async def sync_knowledge_base():
+async def sync_knowledge_base(current_user: User = Depends(get_current_user)):
     docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await docs_mongo_loader.connect()
     documents = await docs_mongo_loader.load_unprocessed_documents()
@@ -74,7 +85,7 @@ async def sync_knowledge_base():
             await vector_embeddings_processor.index_doc_to_vector(documents)
         except Exception as e:
             logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            return {"error": str(e)}
+            raise ValueError(f"Something went wrong. Please try again later.")
     if links:
         logger.info(f"Total {len(links)} unprocessed links found and processing...")
         try:
@@ -83,18 +94,18 @@ async def sync_knowledge_base():
             
         except Exception as e:
             logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            return {"error": str(e)}
+            raise ValueError(f"Something went wrong. Please try again later.")
         
     return {"message": "Sync completed successfully"}
 @router.post("/download_files", tags=["dashboard"])
-async def download_files(file_ids: List[str]):
+async def download_files(file_ids: List[str],current_user: User = Depends(get_current_user)):
     logger.info(f"Attempting to download files with IDs: {file_ids}")
     try:
         # Validate all file IDs
         for file_id in file_ids:
             if not ObjectId.is_valid(file_id):
                 logger.warning(f"Invalid ObjectId: {file_id}")
-                raise HTTPException(status_code=400, detail=f"Invalid file ID format: {file_id}")
+                raise ValueError(f"Something went wrong. Please try again later.")
 
         if len(file_ids) == 1:
             # Single file download
@@ -102,13 +113,13 @@ async def download_files(file_ids: List[str]):
             file = await doc_db.fs.files.find_one({"_id": ObjectId(file_id)})
             if not file:
                 logger.warning(f"File metadata not found for ID: {file_id}")
-                raise HTTPException(status_code=404, detail="File not found")
+                raise ValueError(f"Something went wrong. Please try again later.")
 
             try:
                 grid_out = fs.get(ObjectId(file_id))
             except gridfs.errors.NoFile:
                 logger.error(f"File content not found in GridFS for ID: {file_id}")
-                raise HTTPException(status_code=404, detail="File content not found")
+                raise ValueError(f"Something went wrong. Please try again later.")
 
             logger.info(f"Returning single file: {file['filename']}")
             return StreamingResponse(
@@ -149,13 +160,13 @@ async def download_files(file_ids: List[str]):
 
     except InvalidId as e:
         logger.error(f"Invalid ObjectId format: {str(e)}")
-        raise HTTPException(status_code=400, detail="Invalid file ID format")
+        raise ValueError(f"Something went wrong. Please try again later.")
     except Exception as e:
         logger.error(f"Unexpected error downloading files: {str(e)}")
-        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+        raise ValueError(f"Something went wrong. Please try again later.")
 
 @router.post("/get_url_with_id", tags=["dashboard"])
-async def get_url_with_id(ids: List[str]):
+async def get_url_with_id(ids: List[str],current_user: User = Depends(get_current_user)):
     print(ids)
     url_with_id = []
     for id in ids:
@@ -167,12 +178,17 @@ async def get_url_with_id(ids: List[str]):
     return url_with_id
 
 @router.get("/files", tags=["dashboard"])
-async def list_files():
-    files = await doc_db.fs.files.find().to_list(length=None)
-    return [{"filename": file["filename"], "id": str(file["_id"]), "upload_date": file["uploadDate"], "content_type": file["contentType"], "Synced": file["Synced"]} for file in files]
-
+async def list_files(current_user: User = Depends(get_current_user)):
+    logger.info(f"Current user: {current_user.username}")
+    try:
+        files = await doc_db.fs.files.find().to_list(length=None)
+        return [{"filename": file["filename"], "id": str(file["_id"]), "upload_date": file["uploadDate"], "content_type": file["contentType"], "Synced": file["Synced"]} for file in files]
+    except Exception as e:
+        logger.error(f"Error retrieving files: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error retrieving files")
+    
 @router.get("/links", tags=["dashboard"])
-async def get_links():
+async def get_links(current_user: User = Depends(get_current_user)):
     try:
         links = await links_collection.find().to_list(length=None)
         formatted_links = []
@@ -189,18 +205,22 @@ async def get_links():
         
     except Exception as e:
         logger.error(f"Error retrieving links: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"An error occurred while retrieving links: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
     
 @router.get("/get_count_unprocessed_files", tags=["dashboard"])
-async def get_count_unprocessed_files():
-    mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
-    await mongo_loader.connect()
-    count = await mongo_loader.get_count_unprocessed_documents()
-    await mongo_loader.close()
-    return {"count": count}
+async def get_count_unprocessed_files(current_user: User = Depends(get_current_user)):
+    try:
+        mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
+        await mongo_loader.connect()
+        count = await mongo_loader.get_count_unprocessed_documents()
+        await mongo_loader.close()
+        return {"count": count}
+    except Exception as e:
+        logger.error(f"Error retrieving count of unprocessed files: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
 
 @router.delete("/delete_file", tags=["dashboard"])
-async def delete_files(file_ids: List[str]):
+async def delete_files(file_ids: List[str],current_user: User = Depends(get_current_user)):
     deleted_files = []
     errors = []
 
@@ -232,13 +252,17 @@ async def delete_files(file_ids: List[str]):
     }
 
 @router.delete("/delete_embeddings", tags=["dashboard"])
-async def delete_embeddings(ids: List[str]):
-    vector_embeddings_processor = VectorEmbeddingsProcessor()
-    result = await vector_embeddings_processor.delete_embeddings(ids)
-    return result
+async def delete_embeddings(ids: List[str],current_user: User = Depends(get_current_user)):
+    try:
+        vector_embeddings_processor = VectorEmbeddingsProcessor()
+        result = await vector_embeddings_processor.delete_embeddings(ids)
+        return result
+    except Exception as e:
+        logger.error(f"Error deleting embeddings: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
 
 @router.delete("/delete_links", tags=["dashboard"])
-async def delete_links(link_ids: List[str]):
+async def delete_links(link_ids: List[str],current_user: User = Depends(get_current_user)):
     deleted_links = []
     errors = []
 
