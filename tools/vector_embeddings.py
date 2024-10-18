@@ -15,6 +15,8 @@ from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_postgres import PGVector
 from tools.mongodb_loader import MongoDBLangChainLoader
 from langchain_postgres.vectorstores import PGVector
+from app.utils.prompt.MultiQueryRetrieverPrompt import prompt as MultiQueryRetrieverPrompt
+from app.utils.prompt.ChatPrompt import prompt as ChatPrompt
 from app.core.database import MONGO_URL, DOC_DB_NAME, WEB_DB_NAME
 import psycopg
 from typing import List, Dict, Any
@@ -43,7 +45,7 @@ class VectorEmbeddingsProcessor:
             'web': WebBaseLoader
         }
     
-    def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 1500, chunk_overlap: int = 100):
+    def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 2000, chunk_overlap: int = 200):
         try:    
             logger.info("Splitting text into chunks")
             splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -243,16 +245,7 @@ class VectorEmbeddingsProcessor:
             logger.info("PGVector initialized successfully")
 
             logger.info("Setting up QUERY_PROMPT")
-            QUERY_PROMPT = PromptTemplate(
-                input_variables=["question"],
-                template="""You are an AI language model assistant. Your task is to generate five
-                different versions of the given user question to retrieve relevant documents from
-                a vector database. By generating multiple perspectives on the user question, your
-                goal is to help the user overcome some of the limitations of the distance-based
-                similarity search. Provide these alternative questions separated by newlines.
-                Original question: {question}"""
-            )
-
+            QUERY_PROMPT = MultiQueryRetrieverPrompt
             logger.info(f"Initializing ChatOllama with model: {self.llm_model}")
             llm = ChatOllama(model=self.llm_model, temperature=0)
 
@@ -273,11 +266,7 @@ class VectorEmbeddingsProcessor:
             parser = StrOutputParser()
 
             logger.info("Setting up answer_prompt")
-            template = '''Answer the question based ONLY on the following context:
-            {context}
-            Question: {question}
-            '''
-            answer_prompt = PromptTemplate.from_template(template)
+            answer_prompt = ChatPrompt
 
             logger.info("Setting up the chain")
             self.chain = (
@@ -292,97 +281,3 @@ class VectorEmbeddingsProcessor:
         except Exception as e:
             logger.error(f"Error in load_vectorstore_and_retriever: {str(e)}", exc_info=True)
             raise
-
-        
-    """
-       async def index_pdf_and_create_chain(self):
-        try:
-            pdf_files = [f for f in os.listdir(self.temp_sync_docs_path) if f.endswith('.pdf')]
-            if not pdf_files:
-                logger.warning("No PDF files found in the directory.")
-            else:
-                pages = []
-                for pdf_file in pdf_files:
-                    file_path = os.path.join(self.temp_sync_docs_path, pdf_file)
-                    logger.info(f"Loading PDF: {file_path}")
-                    loader = PyPDFLoader(file_path)
-                async for page in loader.alazy_load():
-                    pages.append(page)
-
-            chunks = await self.split_text(pages)
-            _, retriever = self.create_vectorstore_and_retriever(chunks)
-            self.setup_conversational_chain(retriever)
-            logger.info(f"Total {len(pdf_files)} indexed and chain created")
-            return self.chain
-        except Exception as e:
-            logger.error(f"Error in index_pdf_and_create_chain: {str(e)}")
-
-
-    def chat_with_pdf(self, query: str) -> str:
-        if not self.chain:
-            raise ValueError("Chain not initialized. Call index_pdf_and_create_chain first.")
-        handler = StdOutCallbackHandler()
-        return self.chain.invoke({"question": query}, {"callbacks": [handler]}) 
-
-            def create_vectorstore_and_retriever(self, chunks: List[Dict[str, Any]]):
-        logger.info("Creating vector store and retriever")
-        connection_params = {
-            "user": os.getenv("PGVECTOR_USER"),
-            "password": os.getenv("PGVECTOR_PASSWORD"),
-            "host": os.getenv("PGVECTOR_HOST"),
-            "port": os.getenv("PGVECTOR_PORT"),
-            "database": os.getenv("PGVECTOR_DB_NAME")
-        }
-        QUERY_PROMPT = PromptTemplate(
-        input_variables=["question"],
-        template'''You are an AI language model assistant. Your task is to generate five
-        different versions of the given user question to retrieve relevant documents from
-        a vector database. By generating multiple perspectives on the user question, your
-        goal is to help the user overcome some of the limitations of the distance-based
-        similarity search. Provide these alternative questions separated by newlines.
-        Original question: {question}'''
-        )
-        connection_string = f"postgresql+psycopg://{connection_params['user']}:{connection_params['password']}@{connection_params['host']}:{connection_params['port']}/{connection_params['database']}"
-        vector_store = PGVector.from_documents(
-        documents=chunks,
-        embeddings=self.huggingface_embeddings,
-        collection_name=os.getenv("PGVECTOR_COLLECTION_NAME"),
-        connection=connection_string,
-        use_jsonb=True,
-        )
-
-        llm = ChatOllama(model=self.llm_model, temperature=0)
-        retriever = MultiQueryRetriever.from_llm(
-            vector_store.as_retriever(),
-            llm,
-            prompt=QUERY_PROMPT
-        )
-        return vector_store, retriever
-
-    def setup_conversational_chain(self, retriever):
-        llm = ChatOllama(model=self.llm_model, temperature=50)
-        parser = StrOutputParser()
-        
-        template = '''Answer the question based ONLY on the following context:
-        {context}
-        Question: {question}
-        '''
-
-        prompt = PromptTemplate.from_template(template)
-        
-        def format_docs(docs):  
-            format_docs = "\n\n".join([d.page_content for d in docs])
-            return format_docs
-        
-        try:
-            self.chain = (
-            {"context": retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | parser
-            )
-            print("Chain setup completed successfully")
-        except Exception as e:
-            print(f"Error in setup_conversational_chain: {str(e)}")
-    """ 
-

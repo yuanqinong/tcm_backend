@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from app.api import dashboard, chatbot, loginPage
+from app.api import dashboard, chatbot, loginPage, recommendation
 
 tags_metadata = [
     {
@@ -17,6 +17,10 @@ tags_metadata = [
         "name": "login/signup",
         "description": "Operations with login/signup",
     },
+    {
+        "name": "recommendation",
+        "description": "Operations with recommendation",
+    }
 ]
 
 app = FastAPI(openapi_tags=tags_metadata)
@@ -70,7 +74,8 @@ app.include_router(dashboard.router, prefix="/api/dashboard")
 app.include_router(chatbot.router, prefix="/api/chatbot")
 
 app.include_router(loginPage.router, prefix="/api/loginPage")
-# Other app configurations and routers...
+
+app.include_router(recommendation.router, prefix="/api/recommendation")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

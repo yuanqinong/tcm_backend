@@ -4,7 +4,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
@@ -12,6 +12,9 @@ import os
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from app.utils import logger  # Assuming you have a logger utility
 from typing import Optional
+import uuid
+from sqlalchemy.dialects.postgresql import UUID
+
 router = APIRouter()
 security = HTTPBearer()
 load_dotenv()
@@ -25,7 +28,7 @@ Base = declarative_base()
 # User model
 class User(Base):
     __tablename__ = "admins"
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
 
@@ -96,8 +99,9 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("username")
-        if username is None:
-            raise JWTError("Username not found in token payload")
+        user_id: str = payload.get("user_id")
+        if username is None or user_id is None:
+            raise JWTError("Username or user_id not found in token payload")
     except JWTError as e:
         logger.error(f"JWT decode error: {str(e)}")
         raise HTTPException(
@@ -129,36 +133,46 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return user
 
 # API endpoints
-@router.post("/signup", response_model=Token,tags=["login/signup"])
+@router.post("/signup", response_model=Token, tags=["login/signup"])
 async def signup(user: UserCreate):
     db = SessionLocal()
-    db_user = get_user(db, username=user.username)
-    if db_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    hashed_password = get_password_hash(user.password)
-    new_user = User(username=user.username, hashed_password=hashed_password)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
-    db.close()
-    access_token = create_access_token(data={"sub": user.username})
-    return {"access_token": access_token, "token_type": "bearer"}
+    try:
+        db_user = get_user(db, username=user.username)
+        if db_user:
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        hashed_password = get_password_hash(user.password)
+        new_user = User(
+            id=uuid.uuid4(),
+            username=user.username,
+            hashed_password=hashed_password
+        )
+        db.add(new_user)
+        db.commit()
+        db.refresh(new_user)
+        
+        access_token = create_access_token(data={"sub": user.username, "user_id": str(new_user.id)})
+        return {"access_token": access_token, "token_type": "bearer"}
+    finally:
+        db.close()
 
 @router.post("/login", response_model=Token, tags=["login/signup"])
 async def login(login_data: LoginData):
     db = SessionLocal()
-    user = authenticate_user(db, login_data.username, login_data.password)
-    db.close()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    access_token = create_access_token(data={"username": user.username})
-    return {"access_token": access_token, "token_type": "Bearer"}
+    try:
+        user = authenticate_user(db, login_data.username, login_data.password)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect username or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        access_token = create_access_token(data={"username": user.username, "user_id": str(user.id)})
+        return {"access_token": access_token, "token_type": "Bearer"}
+    finally:
+        db.close()
 
 # The protected route can stay as it is
 @router.get("/protected", tags=["protected"])
 async def protected_route(current_user: User = Depends(get_current_user)):
-    return {"message": "You have access to this protected route", "username": current_user.username}
+    return {"message": "You have access to this protected route", "username": current_user.username, "user_id": str(current_user.id)}
