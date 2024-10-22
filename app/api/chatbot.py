@@ -2,11 +2,13 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from app.utils.logger import logger
+from tools.agent_tools import invoke_agent
 router = APIRouter()
 
 class ChatRequest(BaseModel):
     query: str
 
+"""
 @router.post("/chat", tags=["chatbot"])
 async def chat(chat_request: ChatRequest):
     vector_embeddings = VectorEmbeddingsProcessor()
@@ -18,4 +20,13 @@ async def chat(chat_request: ChatRequest):
         return {"answer": response}
     except Exception as e:
         logger.error(f"Error in sync_knowledge_base: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
+"""
+@router.post("/chat", tags=["chatbot"])
+async def chat(chat_request: ChatRequest):
+    try:    
+        response = invoke_agent(chat_request.query)
+        return {"answer": response}
+    except Exception as e:
+        logger.error(f"Error in chat: {str(e)}")
         raise ValueError(f"Something went wrong. Please try again later.")

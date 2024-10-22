@@ -133,7 +133,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return user
 
 # API endpoints
-@router.post("/signup", response_model=Token, tags=["login/signup"])
+@router.post("/signup/admins", response_model=Token, tags=["login/signup"])
 async def signup(user: UserCreate):
     db = SessionLocal()
     try:
@@ -156,7 +156,7 @@ async def signup(user: UserCreate):
     finally:
         db.close()
 
-@router.post("/login", response_model=Token, tags=["login/signup"])
+@router.post("/login/admins", response_model=Token, tags=["login/signup"])
 async def login(login_data: LoginData):
     db = SessionLocal()
     try:
