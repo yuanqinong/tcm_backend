@@ -15,20 +15,25 @@ from app.utils.logger import logger
 @tool
 def rag_tool(query: str) -> str:
     """Answer a query or question using the knowledge base."""
+    logger.info("Invoking rag_tool")
     vector_embeddings_processor = VectorEmbeddingsProcessor()
     rag_chain = vector_embeddings_processor.load_vectorstore_and_retriever()
-    return rag_chain.invoke(query)
+    response = rag_chain.invoke(query)
+    logger.info(f"RAG Response: {response}")
+    return {"answer": response}
 
 @tool
-async def get_recommendations():
+async def get_customer_recommendations():
     """Get recommendations for a customer with customer purchases history."""
+    logger.info("Invoking get_recommendations tool")
     customer_uuid = UUID("8a829bf4-d7e0-4ecd-afa6-feaf20c69ae5")
-    purchase_history = get_all_products()
-    product_list = get_customer_purchases(customer_uuid)
+    purchase_history = get_customer_purchases(customer_uuid)
+    product_list = get_all_products()
     recommendations = await get_recommendations(purchase_history, product_list)
+    logger.debug(f"Recommendations: {recommendations}")
     return recommendations
 
-tools = [rag_tool, get_recommendations]
+tools = [rag_tool, get_customer_recommendations]
 model = ChatOllama(model="llama3.1",temperature=0)
 prompt = ChatPromptTemplate.from_messages(
     [
@@ -40,22 +45,13 @@ prompt = ChatPromptTemplate.from_messages(
 agent = create_tool_calling_agent(model, tools, prompt)
 agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-
-def invoke_agent(query: str):
+async def invoke_agent(query: str):
     try:
-        # Format tools descriptions
-        tool_descriptions = [f"{tool.name}: {tool.description}" for tool in tools]
+        logger.info(f"Invoking agent with query: {query}")
         
-        # Get tool names
-        tool_names = [tool.name for tool in tools]
-        
-        response = agent_executor.invoke(
-            {
-                "input": query,
-                "tools": "\n".join(tool_descriptions),
-                "tool_names": ", ".join(tool_names),
-            }
-        )
+        response = await agent_executor.ainvoke({
+            "input": query,
+        })
         return response
     except Exception as e:
         logger.error(f"Error in invoke_agent: {str(e)}")

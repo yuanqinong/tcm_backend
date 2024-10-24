@@ -22,11 +22,12 @@ async def chat(chat_request: ChatRequest):
         logger.error(f"Error in sync_knowledge_base: {str(e)}")
         raise ValueError(f"Something went wrong. Please try again later.")
 """
+
 @router.post("/chat", tags=["chatbot"])
 async def chat(chat_request: ChatRequest):
     try:    
-        response = invoke_agent(chat_request.query)
-        return {"answer": response}
+        response = await invoke_agent(chat_request.query)
+        return response
     except Exception as e:
         logger.error(f"Error in chat: {str(e)}")
         raise ValueError(f"Something went wrong. Please try again later.")
