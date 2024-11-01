@@ -32,15 +32,11 @@ Based on this information, please follow these steps to generate personalized re
    - price (price of the recommended product)
    - category (category of the recommended product)
 
-Please follow the following format instructions :
-{format_instructions}
-
 Your task is to analyze this information and provide personalized product recommendations as described above.
 """
 
 # Create the prompt
-prompt = PromptTemplate(
+prompt_template = PromptTemplate(
     template=prompt_template,
     input_variables=["purchase_history", "product_list"],
-    partial_variables={"format_instructions": output_parser.get_format_instructions()}
 )

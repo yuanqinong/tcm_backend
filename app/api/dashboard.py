@@ -12,7 +12,7 @@ from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
 from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection
-from app.api.loginPage import get_current_user,User
+from app.api.loginPageAdmin import get_current_user,User
 # Define UTC+8 offset
 utc_offset = timedelta(hours=8)
 

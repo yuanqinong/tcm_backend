@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from app.utils.prompt.RecommendationPrompt import prompt
+from app.utils.prompt.RecommendationPromptTool import prompt_template
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List
 from langchain.schema import StrOutputParser
@@ -12,6 +13,7 @@ from app.utils.logger import logger
 from app.utils.shared_models import output_parser
 from sqlalchemy.orm import class_mapper
 import json
+from pydantic import ValidationError
 
 load_dotenv()
 
@@ -45,13 +47,6 @@ class PurchaseHistory(Base):
     product_quantity = sa.Column(sa.Integer, nullable=False)
     price = sa.Column(sa.Numeric(10, 2), nullable=False)
     purchase_date = sa.Column(sa.DateTime, nullable=False)
-
-# Define the output structure
-class ProductRecommendation(BaseModel):
-    product_name: str = Field(description="Name of the recommended product")
-    reason: str = Field(description="Reason for recommending this product")
-    price: float = Field(description="Price of the recommended product")
-    product_category: str = Field(description="Category of the recommended product")
     
 # Create a session
 Session = sessionmaker(bind=engine)
@@ -113,13 +108,13 @@ def get_products_by_category(category):
 
 async def get_recommendations(purchase_history, product_list):
     try:
+        logger.info("Invoking get_recommendations function")
         # Initialize the language model
-        llm = ChatOllama(model="llama3.1", temperature=0.7)
+        llm = ChatOllama(model="llama3.1", temperature=0)
         # Create the LLMChain
        
-        chain = prompt | llm | StrOutputParser() | output_parser
-        
-        
+        chain = prompt | llm | StrOutputParser()
+
         # Prepare the input
         input_data = {
             "purchase_history": purchase_history,
@@ -127,9 +122,48 @@ async def get_recommendations(purchase_history, product_list):
         }
         
         # Run the chain
-        recommendations = await chain.ainvoke(input_data)
+        result = await chain.ainvoke(input_data)
+        
+        # Log raw result for debugging
+        logger.debug(f"Raw LLM output: {result}")
+        
+        try:
+            recommendations = output_parser.parse(result)
+            return recommendations
+        except ValidationError as ve:
+            logger.error(f"Pydantic validation error: {str(ve)}")
+            # Attempt to parse the result as JSON for more information
+            try:
+                parsed_result = json.loads(result)
+                logger.error(f"Parsed invalid result: {json.dumps(parsed_result, indent=2)}")
+            except json.JSONDecodeError:
+                logger.error("Result is not valid JSON")
+            return None
+    except Exception as e:
+        logger.error(f"Error in get_recommendations: {str(e)}")
+        return None
+
+async def get_recommendations_without_format(purchase_history, product_list):
+    try:
+        logger.info("Invoking get_recommendations function")
+        # Initialize the language model
+        llm = ChatOllama(model="llama3.1", temperature=0.5)
+        # Create the LLMChain
+       
+        chain = prompt_template | llm | StrOutputParser()
+
+        # Prepare the input
+        input_data = {
+            "purchase_history": purchase_history,
+            "product_list": product_list
+        }
+        
+        # Rn the chain
+        result = await chain.ainvoke(input_data)
+        # Log raw result for debugging
+        logger.debug(f"Raw LLM output: {result}")
+        return result
     
-        return recommendations
     except Exception as e:
         logger.error(f"Error in get_recommendations: {str(e)}")
         return None

@@ -11,8 +11,8 @@ async def get_recommendations_endpoint(
     customer_uuid: UUID = Query(..., description="Customer UUID")
 ):
     try:
-        purchase_history = get_all_products()
-        product_list = get_customer_purchases(customer_uuid)
+        purchase_history = get_customer_purchases(customer_uuid)
+        product_list = get_all_products()
         recommendations = await get_recommendations(purchase_history, product_list)
 
         return recommendations

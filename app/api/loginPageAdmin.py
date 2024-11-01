@@ -52,6 +52,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
 
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 #oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -73,7 +74,7 @@ def authenticate_user(db, username: str, password: str):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -133,7 +134,7 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return user
 
 # API endpoints
-@router.post("/signup", response_model=Token, tags=["login/signup"])
+@router.post("/signup/admins", response_model=Token, tags=["login/signup"])
 async def signup(user: UserCreate):
     db = SessionLocal()
     try:
@@ -156,7 +157,7 @@ async def signup(user: UserCreate):
     finally:
         db.close()
 
-@router.post("/login", response_model=Token, tags=["login/signup"])
+@router.post("/login/admins", response_model=Token, tags=["login/signup"])
 async def login(login_data: LoginData):
     db = SessionLocal()
     try:

@@ -2,7 +2,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from app.api import dashboard, chatbot, loginPage, recommendation
+from app.api import dashboard, chatbot, loginPageAdmin, recommendation
 
 tags_metadata = [
     {
@@ -73,7 +73,7 @@ app.include_router(dashboard.router, prefix="/api/dashboard")
 # Include the chatbot router
 app.include_router(chatbot.router, prefix="/api/chatbot")
 
-app.include_router(loginPage.router, prefix="/api/loginPage")
+app.include_router(loginPageAdmin.router, prefix="/api/loginPage")
 
 app.include_router(recommendation.router, prefix="/api/recommendation")
 if __name__ == "__main__":
