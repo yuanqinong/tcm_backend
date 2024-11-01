@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from app.utils.prompt.RecommendationPrompt import prompt
+from app.utils.prompt.RecommendationPromptTool import prompt_template
 from sqlalchemy.exc import SQLAlchemyError
 from typing import List
 from langchain.schema import StrOutputParser
@@ -138,6 +139,31 @@ async def get_recommendations(purchase_history, product_list):
             except json.JSONDecodeError:
                 logger.error("Result is not valid JSON")
             return None
+    except Exception as e:
+        logger.error(f"Error in get_recommendations: {str(e)}")
+        return None
+
+async def get_recommendations_without_format(purchase_history, product_list):
+    try:
+        logger.info("Invoking get_recommendations function")
+        # Initialize the language model
+        llm = ChatOllama(model="llama3.1", temperature=0.5)
+        # Create the LLMChain
+       
+        chain = prompt_template | llm | StrOutputParser()
+
+        # Prepare the input
+        input_data = {
+            "purchase_history": purchase_history,
+            "product_list": product_list
+        }
+        
+        # Rn the chain
+        result = await chain.ainvoke(input_data)
+        # Log raw result for debugging
+        logger.debug(f"Raw LLM output: {result}")
+        return result
+    
     except Exception as e:
         logger.error(f"Error in get_recommendations: {str(e)}")
         return None

@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 from typing import Callable
 from uuid import UUID
-from tools.recommendation import get_all_products, get_customer_purchases, get_recommendations
+from tools.recommendation import get_all_products, get_customer_purchases, get_recommendations, get_recommendations_without_format
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_ollama import ChatOllama
