@@ -2,7 +2,7 @@ from langchain.prompts import PromptTemplate
 from app.utils.shared_models import output_parser
 
 prompt_template = """
-You are an advanced product recommendation system. Your task is to analyze a customer's purchase history and a full product list to suggest potential products they might be interested in. The customer's purchase history and the full product list.
+You are an advanced product recommendation system. Your task is to analyze a customer's purchase history and a full product list to suggest potential products they might be interested in.
 
 Customer Purchase History:
 {purchase_history}
@@ -32,10 +32,8 @@ Based on this information, please follow these steps to generate personalized re
    - price (price of the recommended product)
    - category (category of the recommended product)
 
-Please follow the following format instructions :
+Must follow the following format instructions:
 {format_instructions}
-
-Your task is to analyze this information and provide personalized product recommendations as described above.
 """
 
 # Create the prompt

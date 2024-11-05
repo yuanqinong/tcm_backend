@@ -54,7 +54,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Helper functions
 def verify_password(plain_password, hashed_password):

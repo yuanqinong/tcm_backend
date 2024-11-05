@@ -1,7 +1,7 @@
 from langchain_core.tools import tool
 from typing import Callable
 from uuid import UUID
-from tools.recommendation import get_all_products, get_customer_purchases, get_recommendations, get_recommendations_without_format
+from tools.recommendation import get_all_products, get_customer_purchases, get_recommendations
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_ollama import ChatOllama
@@ -26,6 +26,7 @@ def rag_tool(query: str) -> str:
 async def get_customer_recommendations():
     """Get recommendations for a customer with customer purchases history."""
     logger.info("Invoking get_recommendations tool")
+    #Dummy customer uuid due to chatbot not get the uuid (should be integrate the Smooch ID)
     customer_uuid = UUID("8a829bf4-d7e0-4ecd-afa6-feaf20c69ae5")
     purchase_history = get_customer_purchases(customer_uuid)
     product_list = get_all_products()
