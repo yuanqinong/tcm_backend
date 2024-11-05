@@ -23,6 +23,7 @@ from typing import List, Dict, Any
 from app.utils import logger
 from dotenv import load_dotenv
 import os
+
 load_dotenv()
 connection_params = {
     "user": os.getenv("PGVECTOR_USER"),
@@ -247,19 +248,18 @@ class VectorEmbeddingsProcessor:
             logger.info("Setting up QUERY_PROMPT")
             QUERY_PROMPT = MultiQueryRetrieverPrompt
             logger.info(f"Initializing ChatOllama with model: {self.llm_model}")
-            llm = ChatOllama(model=self.llm_model, temperature=0)
+            llm = ChatOllama(model=self.llm_model, temperature=0.3)
 
             logger.info("Setting up MultiQueryRetriever")
             retriever = MultiQueryRetriever.from_llm(
-                vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 5}),
+                vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 3}),
                 llm,
-                prompt=QUERY_PROMPT
+                prompt=QUERY_PROMPT,
             )
             logger.info("MultiQueryRetriever set up successfully")
 
-            def format_docs(docs):  
+            def format_docs(docs):
                 format_docs = "\n\n".join([d.page_content for d in docs])
-                print("format_docs", format_docs)
                 return format_docs
 
             logger.info("Initializing StrOutputParser")
@@ -279,5 +279,5 @@ class VectorEmbeddingsProcessor:
             return self.chain
 
         except Exception as e:
-            logger.error(f"Error in load_vectorstore_and_retriever: {str(e)}", exc_info=True)
+            logger.error(f"Error in load_vectorstore_and_retriever: {str(e)}")
             raise
