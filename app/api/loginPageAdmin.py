@@ -151,7 +151,7 @@ async def signup(user: UserCreate):
         db.commit()
         db.refresh(new_user)
         
-        access_token = create_access_token(data={"sub": user.username, "user_id": str(new_user.id)})
+        access_token = create_access_token(data={"username": user.username, "user_id": str(new_user.id)})
         return {"access_token": access_token, "token_type": "bearer"}
     finally:
         db.close()
