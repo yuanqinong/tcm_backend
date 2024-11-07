@@ -1,0 +1,53 @@
+version: '3.8'
+# only rebuild API
+#docker-compose up -d --build api
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+    depends_on:
+      - postgres-db
+      - pgvector-db
+      - mongodb
+
+  pgvector-db:
+    image: pgvector/pgvector:pg16
+    ports:
+      #- "6024:5432"
+      - "6026:5432"
+    env_file:
+      - .env
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+
+  postgres-db:
+    image: postgres:latest
+    ports:
+      #- "6025:5432"
+      - "6027:5432"
+    env_file:
+      - .env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mongodb:
+    image: mongodb/mongodb-community-server:latest
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    env_file:
+      - .env
+
+volumes:
+  pgvector-data:
+  postgres-data:
+  mongodb-data: 

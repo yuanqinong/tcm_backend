@@ -1,4 +1,5 @@
 fastapi[standard]
+gunicorn
 motor
 python-multipart
 pymongo
@@ -17,5 +18,5 @@ python-magic
 docx2txt
 passlib
 python-jose
-psycopg2
+psycopg2-binary
 bcrypt
