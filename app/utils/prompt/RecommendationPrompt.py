@@ -2,7 +2,7 @@ from langchain.prompts import PromptTemplate
 from app.utils.shared_models import output_parser
 
 prompt_template = """
-You are an advanced product recommendation system. Your task is to analyze a customer's purchase history and a full product list to suggest potential products they might be interested in.
+You are an advanced product recommendation system. Your task is to analyze Customer Purchase History below and Full Product List to suggest potential products they might be interested in. Both the purchase history and product list are in JSON format. If you are unable to get the purchase history or product list, just say that you are unable to generate recommendations.
 
 Customer Purchase History:
 {purchase_history}
@@ -22,9 +22,10 @@ Based on this information, please follow these steps to generate personalized re
    - Consider products in the same or related categories.
 
 3. Generate recommendations:
-   - Suggest 3-5 products that align with the customer's preferences and buying patterns.
+   - Suggest 3 products that align with the customer's preferences and buying patterns.
    - Ensure a mix of recommendations: some similar to past purchases and some introducing new items they might like.
    - Consider the price range of previous purchases when making recommendations.
+   - Make sure the recommendations are from only full product list.
 
 4. For each recommendation, provide:
    - name (name of the recommended product)
@@ -34,6 +35,9 @@ Based on this information, please follow these steps to generate personalized re
 
 Must follow the following format instructions:
 {format_instructions}
+
+Please note that the customer purchase history and full product list are in JSON format.
+Make sure generate recommendations only from the full product list.
 """
 
 # Create the prompt
