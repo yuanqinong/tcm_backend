@@ -10,7 +10,7 @@ from app.utils.prompt.AgentPrompt import SYSTEM
 import json
 from pydantic import BaseModel
 from app.utils.logger import logger
-
+import os
 
 @tool
 def rag_tool(query: str) -> str:
@@ -35,7 +35,10 @@ async def get_customer_recommendations():
     return recommendations
 
 tools = [rag_tool, get_customer_recommendations]
-model = ChatOllama(model="llama3.1",temperature=0)
+OLLAMA_HOST = os.getenv("OLLAMA_HOST")
+OLLAMA_PORT = os.getenv("OLLAMA_PORT")
+OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
+model = ChatOllama(model="llama3.1",temperature=0.3, base_url=OLLAMA_BASE_URL)
 prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM),

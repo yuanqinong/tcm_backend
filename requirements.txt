@@ -1,22 +1,33 @@
+# FastAPI and Server Dependencies
 fastapi[standard]
 gunicorn
-motor
 python-multipart
-pymongo
-colorama
-langchain
-langchain-community
-pypdf
-sentence_transformers
-langchain-ollama
-langchain-cohere
 python-dotenv
-langchain-huggingface
-langchain_postgres
+
+# Database Drivers
+motor
+pymongo
+psycopg2-binary
 psycopg-binary
-python-magic
-docx2txt
+langchain_postgres
+
+# Authentication and Security
 passlib
 python-jose
-psycopg2-binary
 bcrypt
+
+# LangChain and AI/ML
+langchain
+langchain-community
+langchain-ollama
+langchain-huggingface
+sentence_transformers
+
+# Document Processing
+pypdf
+python-magic
+docx2txt
+bs4
+
+# Utilities
+colorama

@@ -83,7 +83,7 @@ def get_customer_purchases(uuid):
         
         # Serialize the purchases to JSON
         purchases_json = json.dumps([serialize(purchase) for purchase in purchases], default=str)
-        
+        logger.info(f"Retrived Purchase History: {purchases_json}")
         return purchases_json
     except SQLAlchemyError as e:
         logger.error(f"Database error in get_customer_purchases for UUID {uuid}: {str(e)}")
@@ -113,7 +113,11 @@ async def get_recommendations(purchase_history, product_list):
     try:
         logger.info("Invoking get_recommendations function")
         # Initialize the language model
-        llm = ChatOllama(model="llama3.1", temperature=0.3)
+        OLLAMA_HOST = os.getenv("OLLAMA_HOST")
+        OLLAMA_PORT = os.getenv("OLLAMA_PORT")
+        OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
+        llm = ChatOllama(model="llama3.1",temperature=0, base_url=OLLAMA_BASE_URL)
+
         # Create the LLMChain
        
         chain = prompt | llm | StrOutputParser()
@@ -124,6 +128,7 @@ async def get_recommendations(purchase_history, product_list):
             "product_list": product_list
         }
         
+        logger.debug(f"Input Data: {input_data}")
         # Run the chain
         result = await chain.ainvoke(input_data)
         

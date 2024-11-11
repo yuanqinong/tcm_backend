@@ -1,6 +1,3 @@
-version: '3.8'
-# only rebuild API
-#docker-compose up -d --build api
 services:
   api:
     build: .
@@ -21,7 +18,6 @@ services:
   pgvector-db:
     image: pgvector/pgvector:pg16
     ports:
-      #- "6024:5432"
       - "6026:5432"
     env_file:
       - .env
@@ -31,7 +27,6 @@ services:
   postgres-db:
     image: postgres:latest
     ports:
-      #- "6025:5432"
       - "6027:5432"
     env_file:
       - .env
@@ -50,4 +45,4 @@ services:
 volumes:
   pgvector-data:
   postgres-data:
-  mongodb-data: 
+  mongodb-data:

@@ -49,7 +49,16 @@ class VectorEmbeddingsProcessor:
     def split_text(self, pages: List[Dict[str, Any]], chunk_size: int = 2000, chunk_overlap: int = 200):
         try:    
             logger.info("Splitting text into chunks")
-            splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+            # Clean the text content of each page
+            for page in pages:
+                if hasattr(page, 'page_content'):
+                    page.page_content = self.clean_text(page.page_content)
+                
+            splitter = RecursiveCharacterTextSplitter(
+                chunk_size=chunk_size, 
+                chunk_overlap=chunk_overlap,
+                separators=["\n\n", "\n", " ", ""]  # Define custom separators
+            )
             chunks = splitter.split_documents(pages)
             logger.info(f"Total {len(chunks)} chunks created")
             return chunks
@@ -248,7 +257,11 @@ class VectorEmbeddingsProcessor:
             logger.info("Setting up QUERY_PROMPT")
             QUERY_PROMPT = MultiQueryRetrieverPrompt
             logger.info(f"Initializing ChatOllama with model: {self.llm_model}")
-            llm = ChatOllama(model=self.llm_model, temperature=0.3)
+            OLLAMA_HOST = os.getenv("OLLAMA_HOST")
+            OLLAMA_PORT = os.getenv("OLLAMA_PORT")
+            OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
+    
+            llm = ChatOllama(model=self.llm_model, temperature=0.3, base_url=OLLAMA_BASE_URL)
 
             logger.info("Setting up MultiQueryRetriever")
             retriever = MultiQueryRetriever.from_llm(
@@ -281,3 +294,11 @@ class VectorEmbeddingsProcessor:
         except Exception as e:
             logger.error(f"Error in load_vectorstore_and_retriever: {str(e)}")
             raise
+
+    def clean_text(self, text: str) -> str:
+        """Clean text by removing excessive newlines and spaces."""
+        # Replace multiple newlines with a single newline
+        text = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
+        # Replace multiple spaces with a single space
+        text = ' '.join(text.split())
+        return text
