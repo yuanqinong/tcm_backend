@@ -2,7 +2,9 @@ from langchain.prompts import PromptTemplate
 from app.utils.shared_models import output_parser
 
 prompt_template = """
-You are an advanced product recommendation system. Your task is to analyze Customer Purchase History below and Full Product List to suggest potential products they might be interested in. Both the purchase history and product list are in JSON format. If you are unable to get the purchase history or product list, just say that you are unable to generate recommendations.
+You are an e-commerce recommendation system. Your task is to analyze Customer Purchase History below and Full Product List to suggest potential products they might be interested in. 
+Both the purchase history and product list are in JSON format. 
+If you are unable to get the purchase history or product list, just say that you are unable to generate recommendations.
 
 Customer Purchase History:
 {purchase_history}

@@ -24,10 +24,10 @@ def rag_tool(query: str) -> str:
 
 @tool
 async def get_customer_recommendations():
-    """Get recommendations for a customer with customer purchases history."""
+    """Generate personalized recommendations for a customer with customer purchases history."""
     logger.info("Invoking get_recommendations tool")
     #Dummy customer uuid due to chatbot not get the uuid (should be integrate the Smooch ID)
-    customer_uuid = UUID("8a829bf4-d7e0-4ecd-afa6-feaf20c69ae5")
+    customer_uuid = UUID("84eff5a1-aabf-4781-b811-ea2848e402b5")
     purchase_history = get_customer_purchases(customer_uuid)
     product_list = get_all_products()
     recommendations = await get_recommendations(purchase_history, product_list)
@@ -38,7 +38,7 @@ tools = [rag_tool, get_customer_recommendations]
 OLLAMA_HOST = os.getenv("OLLAMA_HOST")
 OLLAMA_PORT = os.getenv("OLLAMA_PORT")
 OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
-model = ChatOllama(model="llama3.1",temperature=0.3, base_url=OLLAMA_BASE_URL)
+model = ChatOllama(model="llama3.1",temperature=0, base_url=OLLAMA_BASE_URL)
 prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM),
