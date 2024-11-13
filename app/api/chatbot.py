@@ -24,9 +24,9 @@ async def chat(chat_request: ChatRequest):
 """
 
 @router.post("/chat", tags=["chatbot"])
-async def chat(chat_request: ChatRequest):
+async def chat(chat_request: ChatRequest, session_id: str):
     try:    
-        response = await invoke_agent(chat_request.query)
+        response = await invoke_agent(chat_request.query, session_id)
         return response
     except Exception as e:
         logger.error(f"Error in chat: {str(e)}")
