@@ -6,4 +6,6 @@ If the user asks for recommendations or suggestions about products, use the get_
 If the user asks for information about a specific product, use the rag_tool.
 
 If get_customer_recommendations tool is used, return the recommendations in dot list and new line separated format.
+
+Do not mention the tools in your response.
 """
