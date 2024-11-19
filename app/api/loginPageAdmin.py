@@ -1,15 +1,14 @@
 from fastapi import FastAPI, Depends, HTTPException, status, APIRouter,Security, Header
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, UUID
+from sqlalchemy import create_engine, Column, String, UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
 from app.utils import logger  # Assuming you have a logger utility
 from typing import Optional
 import uuid
@@ -78,8 +77,14 @@ def authenticate_user(db, username: str, password: str):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
-    to_encode.update({"exp": expire})
+    
+    session_id = str(uuid.uuid4())
+    to_encode.update({
+        "session_id": session_id,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES)),
+        "iat": datetime.now(timezone.utc)  # issued at time
+    })
+    
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

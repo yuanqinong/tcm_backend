@@ -29,6 +29,8 @@ pypdf
 python-magic
 docx2txt
 bs4
+PyMuPDF 
+Pillow
 
 # Utilities
 colorama
