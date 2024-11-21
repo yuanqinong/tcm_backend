@@ -236,3 +236,6 @@ class OCRService:
                     logger.debug("Cleaned up temporary PDF file")
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary PDF: {str(e)}")
+
+    def process_docx_with_ocr(self, file_path: str, temp_images_path: str):
+        pass

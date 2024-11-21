@@ -156,13 +156,18 @@ class VectorEmbeddingsProcessor:
 
                 if file_extension not in self.loaders:
                     logger.warning(f"Unsupported file type: {file_extension}. Skipping {file_path}")
-                    continue
-                
-                #TODO: If pdf, then use PyMuPDF to load the document
+                    raise ValueError(f"Unsupported file type: {file_extension}. Skipping {file_path}")
+                    
+                #TODO: If pdf, then use PyMuPDF to extract images
                 if file_extension == '.pdf':
                     ocr_service = OCRService()
                     ocr_service.process_pdf_with_ocr(file_path, temp_images_path)
                 
+                #TODO: If docx, then use docx2txt to extract images
+                if file_extension == '.docx':
+                    ocr_service = OCRService()
+                    ocr_service.process_docx_with_ocr(file_path, temp_images_path)
+
                 loader_class = self.loaders[file_extension]
                 logger.info(f"Loading file for chunking: {file_path}")
                 loader = loader_class(file_path)
