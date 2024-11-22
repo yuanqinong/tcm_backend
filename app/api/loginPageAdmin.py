@@ -1,5 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, APIRouter,Security, Header
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import FastAPI, Depends, HTTPException, status, APIRouter,Security, Header, Response, Cookie
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta, timezone
@@ -9,7 +8,7 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
 import os
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.security import HTTPBearer
 from app.utils import logger  # Assuming you have a logger utility
 from typing import Optional
 import uuid
@@ -55,8 +54,8 @@ class Token(BaseModel):
 # Authentication settings
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
-
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -78,68 +77,53 @@ def authenticate_user(db, username: str, password: str):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
+    tz = timezone(timedelta(hours=8))
+    expire = datetime.now(tz) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
+    logger.info(f"Expire time (Malaysia/UTC+8): {expire}")
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-async def get_current_user(authorization: Optional[str] = Header(None)):
-    if not authorization:
-        logger.error("No Authorization header provided")
+async def get_current_user(
+    access_token: str = Cookie(None, alias="access_token")
+) -> User:
+    if not access_token:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=401,
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer":
-        logger.error(f"Invalid authentication scheme: {scheme}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication scheme. Use Bearer",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
+    # Remove 'Bearer ' prefix if present
+    if access_token.startswith("Bearer "):
+        access_token = access_token[7:]
+    
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            access_token, 
+            SECRET_KEY, 
+            algorithms=[ALGORITHM],
+        )
         username: str = payload.get("username")
         user_id: str = payload.get("user_id")
-        if username is None or user_id is None:
-            raise JWTError("Username or user_id not found in token payload")
-    except JWTError as e:
-        logger.error(f"JWT decode error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+        
+    # Get user from database
+    db = SessionLocal()
     try:
-        db = SessionLocal()
         user = get_user(db, username=username)
         if user is None:
-            logger.error(f"User not found: {username}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="User not found",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except Exception as e:
-        logger.error(f"Database error: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
-        )
+            raise HTTPException(status_code=401, detail="User not found")
+        return user
     finally:
         db.close()
-    
-    logger.info(f"Authentication successful for user: {username}")
-    return user
 
 # API endpoints
 @router.post("/signup/admins", response_model=Token, tags=["login/signup"])
-async def signup(user: UserCreate):
+async def signup(user: UserCreate, response: Response):
     db = SessionLocal()
     try:
         db_user = get_user(db, username=user.username)
@@ -157,14 +141,25 @@ async def signup(user: UserCreate):
         db.refresh(new_user)
         
         access_token = create_access_token(data={"username": user.username, "user_id": str(new_user.id)})
+
+        response.set_cookie(
+            key="access_token",
+            value=f"{access_token}",
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=COOKIE_MAX_AGE
+        )
+        
         return {"access_token": access_token, "token_type": "bearer"}
     finally:
         db.close()
 
 @router.post("/login/admins", response_model=Token, tags=["login/signup"])
-async def login(login_data: LoginData):
+async def login(login_data: LoginData, response: Response):
     db = SessionLocal()
     try:
+        # Authenticate user
         user = authenticate_user(db, login_data.username, login_data.password)
         if not user:
             raise HTTPException(
@@ -172,12 +167,39 @@ async def login(login_data: LoginData):
                 detail="Incorrect username or password",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        access_token = create_access_token(data={"username": user.username, "user_id": str(user.id)})
+            
+        # Create access token
+        access_token = create_access_token(
+            data={"username": user.username, "user_id": str(user.id)}
+        )
+        
+        # Set cookie
+        response.set_cookie(
+            key="access_token",
+            value=f"{access_token}",
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=COOKIE_MAX_AGE  # 1 hour in seconds
+        )
+        
+        # Return token in response body as before
         return {"access_token": access_token, "token_type": "Bearer"}
+        
     finally:
         db.close()
 
+@router.post("/logout", tags=["login/signup"])
+async def logout(response: Response):
+    response.delete_cookie(
+        key="access_token",
+        httponly=True,
+        secure=True,
+        samesite="lax"
+    )
+    return {"message": "Successfully logged out"}
+
 # The protected route can stay as it is
-@router.get("/protected", tags=["protected"])
+@router.get("/auth/verify", tags=["protected"])
 async def protected_route(current_user: User = Depends(get_current_user)):
     return {"message": "You have access to this protected route", "username": current_user.username, "user_id": str(current_user.id)}
