@@ -54,8 +54,8 @@ class Token(BaseModel):
 # Authentication settings
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
-
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+COOKIE_MAX_AGE = ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -77,7 +77,9 @@ def authenticate_user(db, username: str, password: str):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
+    tz = timezone(timedelta(hours=8))
+    expire = datetime.now(tz) + timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
+    logger.info(f"Expire time (Malaysia/UTC+8): {expire}")
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
@@ -100,7 +102,7 @@ async def get_current_user(
         payload = jwt.decode(
             access_token, 
             SECRET_KEY, 
-            algorithms=[ALGORITHM]
+            algorithms=[ALGORITHM],
         )
         username: str = payload.get("username")
         user_id: str = payload.get("user_id")
@@ -139,14 +141,14 @@ async def signup(user: UserCreate, response: Response):
         db.refresh(new_user)
         
         access_token = create_access_token(data={"username": user.username, "user_id": str(new_user.id)})
-        
+
         response.set_cookie(
             key="access_token",
-            value=f"Bearer {access_token}",
+            value=f"{access_token}",
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=3600
+            max_age=COOKIE_MAX_AGE
         )
         
         return {"access_token": access_token, "token_type": "bearer"}
@@ -174,11 +176,11 @@ async def login(login_data: LoginData, response: Response):
         # Set cookie
         response.set_cookie(
             key="access_token",
-            value=f"Bearer {access_token}",
+            value=f"{access_token}",
             httponly=True,
             secure=True,
             samesite="lax",
-            max_age=3600  # 1 hour in seconds
+            max_age=COOKIE_MAX_AGE  # 1 hour in seconds
         )
         
         # Return token in response body as before
@@ -198,6 +200,6 @@ async def logout(response: Response):
     return {"message": "Successfully logged out"}
 
 # The protected route can stay as it is
-@router.get("/protected", tags=["protected"])
+@router.get("/auth/verify", tags=["protected"])
 async def protected_route(current_user: User = Depends(get_current_user)):
     return {"message": "You have access to this protected route", "username": current_user.username, "user_id": str(current_user.id)}
