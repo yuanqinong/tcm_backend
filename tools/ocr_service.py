@@ -6,6 +6,8 @@ from app.utils import logger
 import os
 from datetime import datetime
 import fitz
+from app.utils.prompt.VisionPrompt import prompt as VisionPrompt
+import tempfile
 
 class OCRService:
     def __init__(self, model: str = "x/llama3.2-vision:latest"):
@@ -26,16 +28,42 @@ class OCRService:
     def process_document(self, file_path: str) -> str:
         """Process document and extract text using OCR."""
         try:
-            base64_image = self.encode_image_to_base64(file_path)
+            logger.debug(f"Processing document: {file_path}")
+            """
+                        base64_image = self.encode_image_to_base64(file_path)
             
+            # Generate a timestamp-based unique filename
+            temp_filename = f"temp_ocr_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.txt"
+            # Normalize path separators for the current OS
+            temp_file = os.path.normpath(os.path.join("temp_ocr", temp_filename))
+            logger.debug(f"Temp file: {temp_file}")
+            # Ensure temp directory exists
+                        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
+            
+            try:
+                with open(temp_file, 'w') as f:
+                    f.write(base64_image)
+                
+                # Read the base64 data from the temp file
+                with open(temp_file, 'r') as f:
+                    base64_data = f.read()
+                                finally:
+                # Clean up the temporary file
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            """
+
+
+                
             response = ollama.chat(
                 model=self.model,
                 messages=[{
                     "role": "user",
-                    "content": "Extract all text from this document and format it as markdown. Include headers, lists, and tables if present.",
-                    "images": [base64_image]
+                    "content": VisionPrompt,
+                    "images": [file_path]
                 }]
             )
+
             
             extracted_text = response.get('message', {}).get('content', '').strip()
             return extracted_text
@@ -126,7 +154,7 @@ class OCRService:
     def process_pdf_with_ocr(self, file_path: str, temp_images_path: str):
         logger.info(f"Processing PDF file: {file_path}")
         pdf_document = None
-
+        temp_path = None  # Initialize temp_path variable
         
         try:
             pdf_document = fitz.open(file_path)
