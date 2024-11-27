@@ -18,11 +18,15 @@ from langchain_postgres.vectorstores import PGVector
 from app.utils.prompt.MultiQueryRetrieverPrompt import prompt as MultiQueryRetrieverPrompt
 from app.utils.prompt.ChatPrompt import prompt as ChatPrompt
 from app.core.database import MONGO_URL, DOC_DB_NAME, WEB_DB_NAME
+from tools.ocr_service import OCRService
 import psycopg
 from typing import List, Dict, Any
 from app.utils import logger
 from dotenv import load_dotenv
+from pathlib import Path
 import os
+import fitz
+from datetime import datetime
 
 load_dotenv()
 connection_params = {
@@ -132,8 +136,12 @@ class VectorEmbeddingsProcessor:
             raise ValueError(f"Something went wrong. Please try again later.")
         
         return {"message": f"{len(links)} links processed"}
+    
     async def index_doc_to_vector(self, documents):
         mongo_loader = None
+        temp_images_path = r".\temp_images"
+        if not os.path.exists(temp_images_path):
+            os.makedirs(temp_images_path, exist_ok=True)
         try:
             pages = []
             mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
@@ -148,9 +156,20 @@ class VectorEmbeddingsProcessor:
 
                 if file_extension not in self.loaders:
                     logger.warning(f"Unsupported file type: {file_extension}. Skipping {file_path}")
-                    continue
+                    raise ValueError(f"Unsupported file type: {file_extension}. Skipping {file_path}")
+                    
+                #TODO: If pdf, then use PyMuPDF to extract images
+                if file_extension == '.pdf':
+                    ocr_service = OCRService()
+                    ocr_service.process_pdf_with_ocr(file_path, temp_images_path)
+                
+                #TODO: If docx, then use docx2txt to extract images
+                if file_extension == '.docx':
+                    ocr_service = OCRService()
+                    ocr_service.process_docx_with_ocr(file_path, temp_images_path)
 
                 loader_class = self.loaders[file_extension]
+                logger.info(f"Loading file for chunking: {file_path}")
                 loader = loader_class(file_path)
                 try:
                     async for page in loader.alazy_load():
@@ -190,12 +209,23 @@ class VectorEmbeddingsProcessor:
             # Delete files in temp_sync folder
             for doc in documents:
                 file_path = doc['local_path']
+                image_path = Path(temp_images_path)
                 try:
+                    logger.info(f"Cleaning up temporary directory: {file_path}")
                     await asyncio.to_thread(os.remove, file_path)
                     logger.info(f"Deleted file: {file_path}")
                 except Exception as e:
                     logger.error(f"Error deleting file {file_path}: {str(e)}")
-
+                try:
+                    logger.info(f"Cleaning up temporary directory: {image_path}")
+                    for img in image_path.glob("*"):
+                        try:
+                            await asyncio.to_thread(os.remove, str(img))
+                            logger.debug(f"Removed file: {img}")
+                        except Exception as e:
+                            logger.error(f"Error removing file {file_path}: {str(e)}")                         
+                except Exception as e:
+                    logger.error(f"Error in cleanup_temp_image_path: {str(e)}")
             logger.info("Cleaned up temporary files in temp_sync folder")
 
         return {"message": f"{len(documents)} files processed"}
