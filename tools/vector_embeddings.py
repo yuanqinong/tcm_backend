@@ -37,10 +37,13 @@ connection_params = {
     "database": os.getenv("PGVECTOR_DB_NAME")
 }
 class VectorEmbeddingsProcessor:
-    def __init__(self, model_name: str = "sentence-transformers/all-mpnet-base-v2", llm_model: str = "llama3.1", temp_sync_docs_path: str = "./temp_sync_docs"):
+    def __init__(self, model_name: str = "sentence-transformers/all-mpnet-base-v2", llm_model: str = "llama3.1", temp_images_path: str = r".\temp_images"):
         self.huggingface_embeddings = HuggingFaceEmbeddings(model_name=model_name)
         self.llm_model = llm_model
-        self.temp_sync_docs_path = temp_sync_docs_path
+        self.temp_images_path = temp_images_path
+
+        os.makedirs(self.temp_images_path, exist_ok=True)
+
         self.chain = None
         self.loaders = {
             '.pdf': PyPDFLoader,
@@ -139,9 +142,8 @@ class VectorEmbeddingsProcessor:
     
     async def index_doc_to_vector(self, documents):
         mongo_loader = None
-        temp_images_path = r".\temp_images"
-        if not os.path.exists(temp_images_path):
-            os.makedirs(temp_images_path, exist_ok=True)
+        modified_paths = {}  # Track any path changes during processing
+
         try:
             pages = []
             mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
@@ -151,29 +153,39 @@ class VectorEmbeddingsProcessor:
             for doc in documents:
                 file_path = doc['local_path']
                 object_id = doc['file_id']
+                # Store original file information
+                original_filename = os.path.basename(file_path)
+                original_extension = os.path.splitext(file_path)[1].lower()
+                
                 logger.info(f"Processing document: {file_path} with object_id: {object_id}")
-                file_extension = os.path.splitext(file_path)[1].lower()
+                file_extension = original_extension
 
                 if file_extension not in self.loaders:
                     logger.warning(f"Unsupported file type: {file_extension}. Skipping {file_path}")
                     raise ValueError(f"Unsupported file type: {file_extension}. Skipping {file_path}")
                     
-                #TODO: If pdf, then use PyMuPDF to extract images
+                ocr_service = OCRService()
                 if file_extension == '.pdf':
-                    ocr_service = OCRService()
-                    ocr_service.process_pdf_with_ocr(file_path, temp_images_path)
+                    ocr_service.process_pdf_with_ocr(file_path, self.temp_images_path)
                 
-                #TODO: If docx, then use docx2txt to extract images
-                if file_extension == '.docx':
-                    ocr_service = OCRService()
-                    ocr_service.process_docx_with_ocr(file_path, temp_images_path)
-
+                elif file_extension == '.docx':
+                    new_file_path = ocr_service.process_docx_with_ocr(file_path, self.temp_images_path)
+                    modified_paths[file_path] = new_file_path  # Track the path change
+                    file_path = new_file_path  # Use the new PDF path
+                    file_extension = '.pdf'
+                    
                 loader_class = self.loaders[file_extension]
                 logger.info(f"Loading file for chunking: {file_path}")
                 loader = loader_class(file_path)
                 try:
                     async for page in loader.alazy_load():
+                        # Preserve original file information in metadata
+                        page.metadata['original_filename'] = original_filename
+                        page.metadata['original_extension'] = original_extension
                         page.metadata['object_id'] = object_id
+                        # Optionally modify the source to show original path
+                        if original_extension == '.docx':
+                            page.metadata['source'] = page.metadata['source'].replace('.pdf', '.docx')
                         pages.append(page)
                     processed_file_ids.append(object_id)
                 except Exception as e:
@@ -208,14 +220,20 @@ class VectorEmbeddingsProcessor:
             
             # Delete files in temp_sync folder
             for doc in documents:
-                file_path = doc['local_path']
-                image_path = Path(temp_images_path)
+                original_path = doc['local_path']
+                # Use the modified path if it exists, otherwise use the original path
+                file_path = modified_paths.get(original_path, original_path)
+                
                 try:
-                    logger.info(f"Cleaning up temporary directory: {file_path}")
-                    await asyncio.to_thread(os.remove, file_path)
-                    logger.info(f"Deleted file: {file_path}")
+                    if os.path.exists(file_path):
+                        logger.info(f"Cleaning up file: {file_path}")
+                        await asyncio.to_thread(os.remove, file_path)
+                        logger.info(f"Deleted file: {file_path}")
                 except Exception as e:
                     logger.error(f"Error deleting file {file_path}: {str(e)}")
+
+                # Clean up temp images
+                image_path = Path(self.temp_images_path)
                 try:
                     logger.info(f"Cleaning up temporary directory: {image_path}")
                     for img in image_path.glob("*"):
@@ -223,7 +241,7 @@ class VectorEmbeddingsProcessor:
                             await asyncio.to_thread(os.remove, str(img))
                             logger.debug(f"Removed file: {img}")
                         except Exception as e:
-                            logger.error(f"Error removing file {file_path}: {str(e)}")                         
+                            logger.error(f"Error removing file {img}: {str(e)}")                         
                 except Exception as e:
                     logger.error(f"Error in cleanup_temp_image_path: {str(e)}")
             logger.info("Cleaned up temporary files in temp_sync folder")

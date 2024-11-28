@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()   
 
 class MongoDBLangChainLoader:
-    def __init__(self, mongo_url: str, db_name: str):
+    def __init__(self, mongo_url: str, db_name: str, temp_sync_docs_path: str = r"./temp_sync_docs"):
         self.mongo_url = mongo_url
         self.db_name = db_name
         self.async_client = None
@@ -19,6 +19,9 @@ class MongoDBLangChainLoader:
         self.db = None
         self.fs = None
         self.logger = logger
+        self.temp_sync_docs_path = temp_sync_docs_path
+
+        os.makedirs(self.temp_sync_docs_path, exist_ok=True)
 
     async def connect(self):
         try:
@@ -53,12 +56,10 @@ class MongoDBLangChainLoader:
             query = {"Synced": False}
             files = self.db.fs.files.find(query)
             documents = []
-            temp_dir = "./temp_sync_docs"
-            os.makedirs(temp_dir, exist_ok=True)
             
             async for file in files:
                 grid_out = self.fs.get(file['_id'])
-                temp_file_path = os.path.join(temp_dir, file['filename'])
+                temp_file_path = os.path.join(self.temp_sync_docs_path, file['filename'])
                 
                 with open(temp_file_path, 'wb') as temp_file:
                     temp_file.write(grid_out.read())
@@ -74,7 +75,7 @@ class MongoDBLangChainLoader:
                 
                 documents.append(doc)
             
-            self.logger.info(f"Downloaded {len(documents)} unprocessed files to {temp_dir}")
+            self.logger.info(f"Downloaded {len(documents)} unprocessed files to {self.temp_sync_docs_path}")
             return documents
         
         except Exception as e:

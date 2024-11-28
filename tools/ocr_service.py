@@ -7,7 +7,8 @@ import os
 from datetime import datetime
 import fitz
 from app.utils.prompt.VisionPrompt import prompt as VisionPrompt
-import tempfile
+from spire.doc import *
+from spire.doc.common import *
 
 class OCRService:
     def __init__(self, model: str = "x/llama3.2-vision:latest"):
@@ -27,34 +28,7 @@ class OCRService:
 
     def process_document(self, file_path: str) -> str:
         """Process document and extract text using OCR."""
-        try:
-            logger.debug(f"Processing document: {file_path}")
-            """
-                        base64_image = self.encode_image_to_base64(file_path)
-            
-            # Generate a timestamp-based unique filename
-            temp_filename = f"temp_ocr_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.txt"
-            # Normalize path separators for the current OS
-            temp_file = os.path.normpath(os.path.join("temp_ocr", temp_filename))
-            logger.debug(f"Temp file: {temp_file}")
-            # Ensure temp directory exists
-                        os.makedirs(os.path.dirname(temp_file), exist_ok=True)
-            
-            try:
-                with open(temp_file, 'w') as f:
-                    f.write(base64_image)
-                
-                # Read the base64 data from the temp file
-                with open(temp_file, 'r') as f:
-                    base64_data = f.read()
-                                finally:
-                # Clean up the temporary file
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            """
-
-
-                
+        try:    
             response = ollama.chat(
                 model=self.model,
                 messages=[{
@@ -63,8 +37,6 @@ class OCRService:
                     "images": [file_path]
                 }]
             )
-
-            
             extracted_text = response.get('message', {}).get('content', '').strip()
             return extracted_text
             
@@ -128,8 +100,6 @@ class OCRService:
                 line_height = font_size * 1.2
                 total_height = len(lines) * line_height
 
-            logger.debug(f"Using font size {font_size} for {len(lines)} lines")
-
             # Calculate starting Y position to center text vertically
             y_start = y0 + (rect_height - total_height) / 2
 
@@ -144,7 +114,6 @@ class OCRService:
                     color=(0, 0, 0)  # Black text
                 )
 
-            logger.debug(f"Inserted {len(lines)} lines of text")
             return True
 
         except Exception as e:
@@ -154,7 +123,7 @@ class OCRService:
     def process_pdf_with_ocr(self, file_path: str, temp_images_path: str):
         logger.info(f"Processing PDF file: {file_path}")
         pdf_document = None
-        temp_path = None  # Initialize temp_path variable
+        temp_path = None  
         
         try:
             pdf_document = fitz.open(file_path)
@@ -234,7 +203,6 @@ class OCRService:
                         clean=True,
                         encryption=fitz.PDF_ENCRYPT_NONE
                     )
-                    logger.debug(f"Saved modified PDF to: {temp_path}")
 
                     if pdf_document:
                         pdf_document.close()
@@ -261,9 +229,40 @@ class OCRService:
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.remove(temp_path)
-                    logger.debug("Cleaned up temporary PDF file")
+                    logger.info("Cleaned up temporary PDF file")
                 except Exception as e:
                     logger.warning(f"Failed to clean up temporary PDF: {str(e)}")
 
-    def process_docx_with_ocr(self, file_path: str, temp_images_path: str):
-        pass
+    def process_docx_with_ocr(self, input_file_path: str, temp_images_path: str):
+        output_file_path = self.covert_docx_to_pdf(input_file_path)
+        self.process_pdf_with_ocr(output_file_path, temp_images_path)
+
+        return output_file_path
+        
+
+    def covert_docx_to_pdf(self, input_file_path: str):
+        # Get directory and filename from input path
+        logger.info(f"Converting docx to pdf: {input_file_path}")
+        input_dir = os.path.dirname(input_file_path)
+        input_filename = os.path.basename(input_file_path)
+        
+        # Create output filename by replacing extension with .pdf
+        output_filename = os.path.splitext(input_filename)[0] + '.pdf'
+        output_file_path = os.path.join(input_dir, output_filename)
+        logger.info(f"Output file path: {output_file_path}")
+
+        try:            
+            doc = Document()
+            doc.LoadFromFile(input_file_path)
+            doc.SaveToFile(output_file_path, FileFormat.PDF)
+            doc.Close()
+            
+            # Delete input file after successful conversion
+            os.remove(input_file_path)
+            logger.info(f"Deleted original docx file: {input_file_path}")
+
+        except Exception as e:
+            logger.error(f"Error converting docx to pdf: {str(e)}")
+            raise
+
+        return output_file_path
