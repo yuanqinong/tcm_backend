@@ -9,22 +9,13 @@ import fitz
 from app.utils.prompt.VisionPrompt import prompt as VisionPrompt
 from spire.doc import *
 from spire.doc.common import *
+from docx2pdf import convert
 
 class OCRService:
     def __init__(self, model: str = "x/llama3.2-vision:latest"):
         self.model = model
         self.ollama_host = os.getenv("OLLAMA_HOST")
         self.ollama_port = os.getenv("OLLAMA_PORT")
-        
-    def encode_image_to_base64(self, image_path: str, format: str = "PNG") -> str:
-        try:
-            with Image.open(image_path) as img:
-                buffered = io.BytesIO()
-                img.save(buffered, format=format)
-                return base64.b64encode(buffered.getvalue()).decode('utf-8')
-        except Exception as e:
-            logger.error(f"Error encoding image: {str(e)}")
-            raise
 
     def process_document(self, file_path: str) -> str:
         """Process document and extract text using OCR."""
@@ -241,28 +232,25 @@ class OCRService:
         
 
     def covert_docx_to_pdf(self, input_file_path: str):
-        # Get directory and filename from input path
-        logger.info(f"Converting docx to pdf: {input_file_path}")
-        input_dir = os.path.dirname(input_file_path)
-        input_filename = os.path.basename(input_file_path)
-        
-        # Create output filename by replacing extension with .pdf
-        output_filename = os.path.splitext(input_filename)[0] + '.pdf'
-        output_file_path = os.path.join(input_dir, output_filename)
-        logger.info(f"Output file path: {output_file_path}")
+        try:
+            logger.info(f"Converting docx to pdf: {input_file_path}")
+            input_dir = os.path.dirname(input_file_path)
+            input_filename = os.path.basename(input_file_path)
+            
+            # Create output filename by replacing extension with .pdf
+            output_filename = os.path.splitext(input_filename)[0] + '.pdf'
+            output_file_path = os.path.join(input_dir, output_filename)
+            logger.info(f"Output file path: {output_file_path}")
 
-        try:            
-            doc = Document()
-            doc.LoadFromFile(input_file_path)
-            doc.SaveToFile(output_file_path, FileFormat.PDF)
-            doc.Close()
+            # Convert using docx2pdf
+            convert(input_file_path, output_file_path)
             
             # Delete input file after successful conversion
             os.remove(input_file_path)
             logger.info(f"Deleted original docx file: {input_file_path}")
 
+            return output_file_path
+
         except Exception as e:
             logger.error(f"Error converting docx to pdf: {str(e)}")
             raise
-
-        return output_file_path

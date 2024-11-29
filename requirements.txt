@@ -28,10 +28,10 @@ sentence_transformers
 pypdf
 python-magic
 docx2txt
+docx2pdf
 bs4
 PyMuPDF 
 Pillow
-Spire.Doc
 
 # Utilities
 colorama
