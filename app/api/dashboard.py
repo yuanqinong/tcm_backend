@@ -13,11 +13,16 @@ from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
 from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection
 from app.api.loginPageAdmin import get_current_user,User
+from pydantic import BaseModel
+
 # Define UTC+8 offset
 utc_offset = timedelta(hours=8)
 
 router = APIRouter()
 security = HTTPBearer()
+
+class SyncRequest(BaseModel):
+    enable_ocr: bool = True
 
 @router.post("/upload_files", tags=["dashboard"])
 async def upload_files(files: List[UploadFile] = File(...), current_user: User = Depends(get_current_user)):
@@ -69,7 +74,10 @@ async def upload_links(links: List[str],current_user: User = Depends(get_current
         raise ValueError(f"Something went wrong. Please try again later.")
 
 @router.post("/sync_knowledge_base", tags=["dashboard"])
-async def sync_knowledge_base(current_user: User = Depends(get_current_user)):
+async def sync_knowledge_base(
+    sync_options: SyncRequest,
+    current_user: User = Depends(get_current_user)
+):
     docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await docs_mongo_loader.connect()
     documents = await docs_mongo_loader.load_unprocessed_documents()
@@ -82,7 +90,7 @@ async def sync_knowledge_base(current_user: User = Depends(get_current_user)):
         logger.info(f"Total {len(documents)} unprocessed files found and processing...")
         try:    
             vector_embeddings_processor = VectorEmbeddingsProcessor()
-            await vector_embeddings_processor.index_doc_to_vector(documents)
+            await vector_embeddings_processor.index_doc_to_vector(documents, enable_ocr=sync_options.enable_ocr)
         except Exception as e:
             logger.error(f"Error in sync_knowledge_base: {str(e)}")
             raise ValueError(f"Something went wrong. Please try again later.")

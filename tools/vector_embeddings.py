@@ -140,7 +140,7 @@ class VectorEmbeddingsProcessor:
         
         return {"message": f"{len(links)} links processed"}
     
-    async def index_doc_to_vector(self, documents):
+    async def index_doc_to_vector(self, documents, enable_ocr: bool = False):
         mongo_loader = None
         modified_paths = {}  # Track any path changes during processing
 
@@ -153,7 +153,6 @@ class VectorEmbeddingsProcessor:
             for doc in documents:
                 file_path = doc['local_path']
                 object_id = doc['file_id']
-                # Store original file information
                 original_filename = os.path.basename(file_path)
                 original_extension = os.path.splitext(file_path)[1].lower()
                 
@@ -163,15 +162,22 @@ class VectorEmbeddingsProcessor:
                 if file_extension not in self.loaders:
                     logger.warning(f"Unsupported file type: {file_extension}. Skipping {file_path}")
                     raise ValueError(f"Unsupported file type: {file_extension}. Skipping {file_path}")
-                    
-                ocr_service = OCRService()
-                if file_extension == '.pdf':
-                    ocr_service.process_pdf_with_ocr(file_path, self.temp_images_path)
                 
+                # Only perform OCR if enabled
+                if enable_ocr:
+                    ocr_service = OCRService()
+                    if file_extension == '.pdf':
+                        ocr_service.process_pdf_with_ocr(file_path, self.temp_images_path)
+                    elif file_extension == '.docx':
+                        new_file_path = ocr_service.process_docx_with_ocr(file_path, self.temp_images_path)
+                        modified_paths[file_path] = new_file_path
+                        file_path = new_file_path
+                        file_extension = '.pdf'
                 elif file_extension == '.docx':
-                    new_file_path = ocr_service.process_docx_with_ocr(file_path, self.temp_images_path)
-                    modified_paths[file_path] = new_file_path  # Track the path change
-                    file_path = new_file_path  # Use the new PDF path
+                    # If OCR is disabled but file is docx, convert to PDF without OCR
+                    new_file_path = self.convert_docx_to_pdf(file_path)
+                    modified_paths[file_path] = new_file_path
+                    file_path = new_file_path
                     file_extension = '.pdf'
                     
                 loader_class = self.loaders[file_extension]
