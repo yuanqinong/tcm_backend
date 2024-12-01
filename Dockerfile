@@ -4,6 +4,12 @@ FROM python:3.9-slim
 # Set working directory in container
 WORKDIR /app
 
+# Install system dependencies including ICU libraries
+RUN apt-get update && apt-get install -y \
+    libicu-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements file first (for better caching)
 COPY requirements.txt .
 
