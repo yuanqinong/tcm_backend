@@ -31,6 +31,7 @@ docx2txt
 bs4
 PyMuPDF 
 Pillow
+Spire.Doc
 
 # Utilities
 colorama
