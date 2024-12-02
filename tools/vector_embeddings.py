@@ -140,7 +140,7 @@ class VectorEmbeddingsProcessor:
         
         return {"message": f"{len(links)} links processed"}
     
-    async def index_doc_to_vector(self, documents, enable_ocr: bool = False):
+    async def index_doc_to_vector(self, documents, enable_ocr: bool):
         mongo_loader = None
         modified_paths = {}  # Track any path changes during processing
 
@@ -173,12 +173,6 @@ class VectorEmbeddingsProcessor:
                         modified_paths[file_path] = new_file_path
                         file_path = new_file_path
                         file_extension = '.pdf'
-                elif file_extension == '.docx':
-                    # If OCR is disabled but file is docx, convert to PDF without OCR
-                    new_file_path = self.convert_docx_to_pdf(file_path)
-                    modified_paths[file_path] = new_file_path
-                    file_path = new_file_path
-                    file_extension = '.pdf'
                     
                 loader_class = self.loaders[file_extension]
                 logger.info(f"Loading file for chunking: {file_path}")
@@ -350,9 +344,11 @@ class VectorEmbeddingsProcessor:
             raise
 
     def clean_text(self, text: str) -> str:
-        """Clean text by removing excessive newlines and spaces."""
+        """Clean text by removing excessive newlines, spaces and Spire.Doc warnings."""
+        
         # Replace multiple newlines with a single newline
         text = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
         # Replace multiple spaces with a single space
         text = ' '.join(text.split())
+        text = text.replace("Evaluation Warning: The document was created with Spire.Doc for Python.", "")
         return text

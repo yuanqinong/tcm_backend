@@ -22,7 +22,7 @@ router = APIRouter()
 security = HTTPBearer()
 
 class SyncRequest(BaseModel):
-    enable_ocr: bool = True
+    enable_ocr: bool = False
 
 @router.post("/upload_files", tags=["dashboard"])
 async def upload_files(files: List[UploadFile] = File(...), current_user: User = Depends(get_current_user)):
@@ -78,6 +78,7 @@ async def sync_knowledge_base(
     sync_options: SyncRequest,
     current_user: User = Depends(get_current_user)
 ):
+    logger.info(f"Starting knowledge base sync with OCR {'enabled' if sync_options.enable_ocr else 'disabled'}")
     docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await docs_mongo_loader.connect()
     documents = await docs_mongo_loader.load_unprocessed_documents()

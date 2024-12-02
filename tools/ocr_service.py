@@ -15,16 +15,6 @@ class OCRService:
         self.model = model
         self.ollama_host = os.getenv("OLLAMA_HOST")
         self.ollama_port = os.getenv("OLLAMA_PORT")
-        
-    def encode_image_to_base64(self, image_path: str, format: str = "PNG") -> str:
-        try:
-            with Image.open(image_path) as img:
-                buffered = io.BytesIO()
-                img.save(buffered, format=format)
-                return base64.b64encode(buffered.getvalue()).decode('utf-8')
-        except Exception as e:
-            logger.error(f"Error encoding image: {str(e)}")
-            raise
 
     def process_document(self, file_path: str) -> str:
         """Process document and extract text using OCR."""
@@ -38,6 +28,7 @@ class OCRService:
                 }]
             )
             extracted_text = response.get('message', {}).get('content', '').strip()
+
             return extracted_text
             
         except Exception as e:
@@ -234,14 +225,13 @@ class OCRService:
                     logger.warning(f"Failed to clean up temporary PDF: {str(e)}")
 
     def process_docx_with_ocr(self, input_file_path: str, temp_images_path: str):
-        output_file_path = self.covert_docx_to_pdf(input_file_path)
+        output_file_path = self.convert_docx_to_pdf(input_file_path)
         self.process_pdf_with_ocr(output_file_path, temp_images_path)
 
         return output_file_path
         
-
-    def covert_docx_to_pdf(self, input_file_path: str):
-        # Get directory and filename from input path
+    def convert_docx_to_pdf(self, input_file_path: str) -> str:
+        """Convert DOCX to PDF using LibreOffice."""
         logger.info(f"Converting docx to pdf: {input_file_path}")
         input_dir = os.path.dirname(input_file_path)
         input_filename = os.path.basename(input_file_path)
