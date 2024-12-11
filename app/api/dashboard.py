@@ -11,7 +11,7 @@ from bson.errors import InvalidId
 from app.utils import logger
 from tools.vector_embeddings import VectorEmbeddingsProcessor
 from tools.mongodb_loader import MongoDBLangChainLoader
-from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection
+from app.core.database import doc_db, fs, MONGO_URL, DOC_DB_NAME, WEB_DB_NAME, links_collection, sync_status_collection
 from app.api.loginPageAdmin import get_current_user,User
 from pydantic import BaseModel
 
@@ -79,33 +79,64 @@ async def sync_knowledge_base(
     current_user: User = Depends(get_current_user)
 ):
     logger.info(f"Starting knowledge base sync with OCR {'enabled' if sync_options.enable_ocr else 'disabled'}")
+    
+    # Load documents and URLs first
     docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await docs_mongo_loader.connect()
     documents = await docs_mongo_loader.load_unprocessed_documents()
+    
     urls_mongo_loader = MongoDBLangChainLoader(MONGO_URL, WEB_DB_NAME)  
     await urls_mongo_loader.connect()
     links = await urls_mongo_loader.load_unprocessed_urls()
+    
     if not documents and not links:
         return {"message": "All documents and links are synced"}
-    if documents:
-        logger.info(f"Total {len(documents)} unprocessed files found and processing...")
-        try:    
-            vector_embeddings_processor = VectorEmbeddingsProcessor()
-            await vector_embeddings_processor.index_doc_to_vector(documents, enable_ocr=sync_options.enable_ocr)
-        except Exception as e:
-            logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            raise ValueError(f"Something went wrong. Please try again later.")
-    if links:
-        logger.info(f"Total {len(links)} unprocessed links found and processing...")
-        try:
-            vector_embeddings_processor = VectorEmbeddingsProcessor()
-            await vector_embeddings_processor.index_url_to_vector(links)
-            
-        except Exception as e:
-            logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            raise ValueError(f"Something went wrong. Please try again later.")
+
+    try:
+        # Create a single sync session for both documents and URLs
+        vector_processor = VectorEmbeddingsProcessor()
+        session_id = await vector_processor.create_sync_session(
+            username=current_user.username,
+            file_list=documents,
+            url_list=links
+        )
+
+        # Process documents if any
+        if documents:
+            logger.info(f"Total {len(documents)} unprocessed files found and processing...")
+            try:    
+                await vector_processor.index_doc_to_vector(
+                    documents=documents,
+                    enable_ocr=sync_options.enable_ocr,
+                    username=current_user.username,
+                    session_id=session_id
+                )
+            except Exception as e:
+                logger.error(f"Error processing documents: {str(e)}")
+                raise ValueError(f"Something went wrong. Please try again later.")
+
+        # Process URLs if any
+        if links:
+            logger.info(f"Total {len(links)} unprocessed links found and processing...")
+            try:
+                await vector_processor.index_url_to_vector(
+                    links=links,
+                    username=current_user.username,
+                    session_id=session_id
+                )
+            except Exception as e:
+                logger.error(f"Error processing URLs: {str(e)}")
+                raise ValueError(f"Something went wrong. Please try again later.")
         
-    return {"message": "Sync completed successfully"}
+        return {
+            "message": f"Processing {len(documents)} documents and {len(links)} URLs",
+            "session_id": session_id
+        }
+            
+    except Exception as e:
+        logger.error(f"Error in sync_knowledge_base: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
+
 @router.post("/download_files", tags=["dashboard"])
 async def download_files(file_ids: List[str],current_user: User = Depends(get_current_user)):
     logger.info(f"Attempting to download files with IDs: {file_ids}")
@@ -294,5 +325,55 @@ async def delete_links(link_ids: List[str],current_user: User = Depends(get_curr
         "message": f"{len(deleted_links)} link(s) deleted successfully",
         "deleted_links": deleted_links,
         "errors": errors
-    }   
+    }
 
+@router.get("/active_syncs", tags=["dashboard"])
+async def get_active_syncs(current_user: User = Depends(get_current_user)):
+    """Get all currently active sync sessions"""
+    try:
+        # Find sessions that are in progress (created or processing)
+        cursor = sync_status_collection.find({
+            "status": {"$in": ["created", "processing"]}
+        }).sort("start_time", -1)
+        
+        active_sessions = await cursor.to_list(length=None)
+        
+        # Convert ObjectId to string for JSON serialization
+        for session in active_sessions:
+            session["_id"] = str(session["_id"])
+            # Remove current_file field as it's redundant
+            if "current_file" in session:
+                del session["current_file"]
+            
+        return active_sessions
+    except Exception as e:
+        logger.error(f"Error retrieving active syncs: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving active syncs")
+    
+@router.get("/latest_sync_status", tags=["dashboard"])
+async def get_latest_sync_status(current_user: User = Depends(get_current_user)):
+    """Get the latest sync session across all statuses (created, processing, completed)
+    
+    Returns the single most recent session based on start_time
+    """
+    try:
+        # Query to get the latest document across all relevant statuses
+        cursor = sync_status_collection.find(
+            {"status": {"$in": ["created", "processing", "completed"]}}
+        ).sort("start_time", -1).limit(1)
+        
+        latest_session = await cursor.to_list(length=1)
+        
+        if not latest_session:
+            return None
+            
+        # Convert ObjectId to string for JSON serialization
+        latest_session[0]["_id"] = str(latest_session[0]["_id"])
+        return latest_session[0]
+        
+    except Exception as e:
+        logger.error(f"Error retrieving latest sync status: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail="Error retrieving latest sync status"
+        )
