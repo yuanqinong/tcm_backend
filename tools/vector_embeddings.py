@@ -98,29 +98,90 @@ class VectorEmbeddingsProcessor:
             logger.error(f"Error in store_to_vector: {str(e)}")
             raise ValueError(f"Something went wrong. Please try again later.")
 
-    async def index_url_to_vector(self, links):
+    async def index_url_to_vector(self, links, username: str, session_id: str):
+        """Index URLs to vector store
+        
+        Args:
+            links: List of URLs to process
+            username: User initiating the sync
+            session_id: Existing session ID
+        """
         url_mongo_loader = None
         try:
+            await self.update_sync_status(session_id, {
+                "status": "processing",
+                "processing_start_time": datetime.utcnow()
+            })
+
             pages = []
             processed_url_ids = []
             url_mongo_loader = MongoDBLangChainLoader(MONGO_URL, WEB_DB_NAME)
             await url_mongo_loader.connect()
             loader_class = self.loaders['web']
+            
             for url in links:
-                object_id = url['id']
-                link = url['url']
-                loader = loader_class([link])
-                try:    
-                    loaded_pages = await asyncio.to_thread(loader.load)
-                    for page in loaded_pages:
-                        page.metadata['object_id'] = object_id
-                        pages.append(page)
-                    processed_url_ids.append(object_id)
+                try:
+                    start_time = datetime.utcnow()
+                    # Update URL status to processing
+                    await self.update_sync_status(session_id, {
+                        "file_update": {
+                            "file_id": str(url.get('_id', {}).get('$oid')) if isinstance(url.get('_id'), dict) else str(url.get('_id', '')),
+                            "filename": url['url'],
+                            "status": "processing",
+                            "start_time": start_time
+                        }
+                    })
+
+                    object_id = url['id']
+                    link = url['url']
+                    loader = loader_class([link])
+                    
+                    try:    
+                        loaded_pages = await asyncio.to_thread(loader.load)
+                        for page in loaded_pages:
+                            page.metadata['object_id'] = object_id
+                            pages.append(page)
+                        processed_url_ids.append(object_id)
+
+                        end_time = datetime.utcnow()
+                        processing_duration = (end_time - start_time).total_seconds()
+                        
+                        # Update processed URLs with timing information
+                        await self.update_sync_status(session_id, {
+                            "file_update": {
+                                "file_id": str(url.get('_id', {}).get('$oid')) if isinstance(url.get('_id'), dict) else str(url.get('_id', '')),
+                                "filename": url['url'],
+                                "status": "completed",
+                                "start_time": start_time,
+                                "end_time": end_time,
+                                "processing_duration_seconds": processing_duration
+                            }
+                        })
+
+                    except Exception as e:
+                        end_time = datetime.utcnow()
+                        processing_duration = (end_time - start_time).total_seconds()
+                        
+                        await self.update_sync_status(session_id, {
+                            "file_update": {
+                                "file_id": str(url.get('_id', {}).get('$oid')) if isinstance(url.get('_id'), dict) else str(url.get('_id', '')),
+                                "filename": url['url'],
+                                "status": "error",
+                                "start_time": start_time,
+                                "end_time": end_time,
+                                "processing_duration_seconds": processing_duration,
+                                "error": str(e)
+                            }
+                        })
+                        logger.error(f"Error loading URL {link}: {str(e)}")
+                        continue
+
                 except Exception as e:
-                    logger.error(f"Error loading URL {link}: {str(e)}")
-                    raise ValueError(f"Something went wrong. Please try again later.")
+                    logger.error(f"Error processing URL {url['url']}: {str(e)}")
+                    continue
+
             if not pages:
-                    raise ValueError(f"Something went wrong. Please try again later.")
+                raise ValueError("No pages were successfully processed")
             
             chunks = self.split_text(pages)
             try:
@@ -130,46 +191,85 @@ class VectorEmbeddingsProcessor:
                     
                 if processed_url_ids:
                     updated_count = await url_mongo_loader.mark_urls_as_synced(processed_url_ids)
-                    logger.info(f"Marked {updated_count} out of {len(processed_url_ids)} processed documents as synced")
+                    logger.info(f"Marked {updated_count} out of {len(processed_url_ids)} processed URLs as synced")
             except Exception as e:
                 logger.error(f"Error storing chunks to vector database: {str(e)}")
-
                 raise ValueError(f"Something went wrong. Please try again later.")
+
         except Exception as e:
             logger.error(f"Error in index_url_to_vector: {str(e)}")
             raise ValueError(f"Something went wrong. Please try again later.")
         
-        return {"message": f"{len(links)} links processed"}
+        finally:
+            if url_mongo_loader:
+                await url_mongo_loader.close()
+
+            # Get current session to check errors
+            session = await sync_status_collection.find_one({"_id": ObjectId(session_id)})
+            
+            # Update final status
+            final_status = "completed" if not session.get("errors", []) else "failed"
+            await self.update_sync_status(session_id, {
+                "status": final_status,
+                "end_time": datetime.utcnow()
+            })
+
+        return {
+            "message": f"{len(links)} links processed",
+            "session_id": session_id,
+            "status": final_status
+        }
     
-    async def create_sync_session(self, username: str, total_files: int, file_list: list[str]):
+    async def create_sync_session(self, username: str, file_list: list = None, url_list: list = None):
         """Create a new sync session record with file tracking
         
         Args:
             username: User initiating the sync
-            total_files: Total number of files to process
-            file_list: List of file paths to be processed
+            file_list: Optional list of files to process
+            url_list: Optional list of URLs to process
         """
         logger.info(f"Creating sync session for username: {username}")
         
-        # Ensure we're storing filename strings, not objects
         files = []
-        for file in file_list:
-            filename = file['filename'] if isinstance(file, dict) else file
-            files.append({
-                "filename": filename,
-                "status": "pending",
-                "start_time": None,
-                "end_time": None,
-                "error": None,
-                "processing_duration_seconds": None
-            })
+        total_items = 0
+        
+        # Process files if provided
+        if file_list:
+            total_items += len(file_list)
+            for file in file_list:
+                filename = file['filename'] if isinstance(file['filename'], str) else file['filename'].get('filename', '')
+                files.append({
+                    "file_id": file.get('file_id', ''),
+                    "filename": filename,
+                    "type": "document",
+                    "status": "pending",
+                    "start_time": None,
+                    "end_time": None,
+                    "error": None,
+                    "processing_duration_seconds": None
+                })
+        
+        # Process URLs if provided
+        if url_list:
+            total_items += len(url_list)
+            for url in url_list:
+                files.append({
+                    "file_id": str(url.get('_id', {}).get('$oid')) if isinstance(url.get('_id'), dict) else str(url.get('_id', '')),
+                    "filename": url['url'],
+                    "type": "url",
+                    "status": "pending",
+                    "start_time": None,
+                    "end_time": None,
+                    "error": None,
+                    "processing_duration_seconds": None
+                })
         
         session = {
             "username": username,
             "start_time": datetime.utcnow(),
             "OCR_enabled": None,
             "status": "created",
-            "total_files": total_files,
+            "total_files": total_items,
             "files": files,
             "errors": [],
             "end_time": None
@@ -225,8 +325,15 @@ class VectorEmbeddingsProcessor:
                 {"$set": update_data}
             )
 
-    async def index_doc_to_vector(self, documents, enable_ocr: bool, username: str):
-        session_id = await self.create_sync_session(username, len(documents),documents)
+    async def index_doc_to_vector(self, documents, enable_ocr: bool, username: str, session_id: str):
+        """Index documents to vector store
+        
+        Args:
+            documents: List of documents to process
+            enable_ocr: Whether to enable OCR processing
+            username: User initiating the sync
+            session_id: Existing session ID
+        """
         mongo_loader = None
         modified_paths = {}
 

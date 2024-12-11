@@ -79,33 +79,64 @@ async def sync_knowledge_base(
     current_user: User = Depends(get_current_user)
 ):
     logger.info(f"Starting knowledge base sync with OCR {'enabled' if sync_options.enable_ocr else 'disabled'}")
+    
+    # Load documents and URLs first
     docs_mongo_loader = MongoDBLangChainLoader(MONGO_URL, DOC_DB_NAME)
     await docs_mongo_loader.connect()
     documents = await docs_mongo_loader.load_unprocessed_documents()
+    
     urls_mongo_loader = MongoDBLangChainLoader(MONGO_URL, WEB_DB_NAME)  
     await urls_mongo_loader.connect()
     links = await urls_mongo_loader.load_unprocessed_urls()
+    
     if not documents and not links:
         return {"message": "All documents and links are synced"}
-    if documents:
-        logger.info(f"Total {len(documents)} unprocessed files found and processing...")
-        try:    
-            vector_embeddings_processor = VectorEmbeddingsProcessor()
-            await vector_embeddings_processor.index_doc_to_vector(documents, enable_ocr=sync_options.enable_ocr,username=current_user.username)
-        except Exception as e:
-            logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            raise ValueError(f"Something went wrong. Please try again later.")
-    if links:
-        logger.info(f"Total {len(links)} unprocessed links found and processing...")
-        try:
-            vector_embeddings_processor = VectorEmbeddingsProcessor()
-            await vector_embeddings_processor.index_url_to_vector(links)
-            
-        except Exception as e:
-            logger.error(f"Error in sync_knowledge_base: {str(e)}")
-            raise ValueError(f"Something went wrong. Please try again later.")
+
+    try:
+        # Create a single sync session for both documents and URLs
+        vector_processor = VectorEmbeddingsProcessor()
+        session_id = await vector_processor.create_sync_session(
+            username=current_user.username,
+            file_list=documents,
+            url_list=links
+        )
+
+        # Process documents if any
+        if documents:
+            logger.info(f"Total {len(documents)} unprocessed files found and processing...")
+            try:    
+                await vector_processor.index_doc_to_vector(
+                    documents=documents,
+                    enable_ocr=sync_options.enable_ocr,
+                    username=current_user.username,
+                    session_id=session_id
+                )
+            except Exception as e:
+                logger.error(f"Error processing documents: {str(e)}")
+                raise ValueError(f"Something went wrong. Please try again later.")
+
+        # Process URLs if any
+        if links:
+            logger.info(f"Total {len(links)} unprocessed links found and processing...")
+            try:
+                await vector_processor.index_url_to_vector(
+                    links=links,
+                    username=current_user.username,
+                    session_id=session_id
+                )
+            except Exception as e:
+                logger.error(f"Error processing URLs: {str(e)}")
+                raise ValueError(f"Something went wrong. Please try again later.")
         
-    return {"message": "Sync completed successfully"}
+        return {
+            "message": f"Processing {len(documents)} documents and {len(links)} URLs",
+            "session_id": session_id
+        }
+            
+    except Exception as e:
+        logger.error(f"Error in sync_knowledge_base: {str(e)}")
+        raise ValueError(f"Something went wrong. Please try again later.")
+
 @router.post("/download_files", tags=["dashboard"])
 async def download_files(file_ids: List[str],current_user: User = Depends(get_current_user)):
     logger.info(f"Attempting to download files with IDs: {file_ids}")
