@@ -116,7 +116,7 @@ async def get_recommendations(purchase_history, product_list):
         OLLAMA_HOST = os.getenv("OLLAMA_HOST")
         OLLAMA_PORT = os.getenv("OLLAMA_PORT")
         OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
-        llm = ChatOllama(model="llama3.1",temperature=0, base_url=OLLAMA_BASE_URL)
+        llm = ChatOllama(model="llama3.1",temperature=0.3, base_url=OLLAMA_BASE_URL)
 
         # Create the LLMChain
        

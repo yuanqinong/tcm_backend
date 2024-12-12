@@ -605,6 +605,5 @@ class VectorEmbeddingsProcessor:
         # Replace multiple newlines with a single newline
         text = '\n'.join(line.strip() for line in text.splitlines() if line.strip())
         # Replace multiple spaces with a single space
-        text = ' '.join(text.split())
         text = text.replace("Evaluation Warning: The document was created with Spire.Doc for Python.", "")
         return text

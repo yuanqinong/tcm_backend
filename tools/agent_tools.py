@@ -47,7 +47,7 @@ tools = [rag_tool, get_customer_recommendations]
 OLLAMA_HOST = os.getenv("OLLAMA_HOST")
 OLLAMA_PORT = os.getenv("OLLAMA_PORT")
 OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
-model = ChatOllama(model="llama3.1",temperature=0, base_url=OLLAMA_BASE_URL)
+model = ChatOllama(model="llama3.1",temperature=0.3, base_url=OLLAMA_BASE_URL)
 prompt = ChatPromptTemplate.from_messages(
     [
         ("system", SYSTEM),
