@@ -566,17 +566,20 @@ class VectorEmbeddingsProcessor:
             OLLAMA_BASE_URL = f"http://{OLLAMA_HOST}:{OLLAMA_PORT}"
     
             llm = ChatOllama(model=self.llm_model, temperature=0.3, base_url=OLLAMA_BASE_URL)
-
-            logger.info("Setting up MultiQueryRetriever")
+            """
+             logger.info("Setting up MultiQueryRetriever")
             retriever = MultiQueryRetriever.from_llm(
                 vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 3}),
                 llm,
                 prompt=QUERY_PROMPT,
             )
-            logger.info("MultiQueryRetriever set up successfully")
+            logger.info("MultiQueryRetriever set up successfully")           
+            """
+            retriever = vector_store.as_retriever(search_type="mmr", search_kwargs={"k": 3})
 
             def format_docs(docs):
                 format_docs = "\n\n".join([d.page_content for d in docs])
+                print("format_docs", format_docs)
                 return format_docs
 
             logger.info("Initializing StrOutputParser")
