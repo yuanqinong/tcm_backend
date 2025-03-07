@@ -9,6 +9,9 @@ TCM is a comprehensive knowledge base and chatbot platform that allows users to 
  - [Backend](https://github.com/yuanqinong/tcm_backend )
  - [Knowledge Base Management Dashboard](https://github.com/yuanqinong/tcm_dashboard)
 
+## Demo
+
+![Demo](https://github.com/user-attachments/assets/7bc584b8-ba52-4f1b-87f3-3521369c48ad)
 
 ## Features
 
